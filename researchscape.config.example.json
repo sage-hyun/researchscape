@@ -1,0 +1,4 @@
+{
+  "dataDirectory": "./data",
+  "stateDirectory": "./.local"
+}

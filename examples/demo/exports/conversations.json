@@ -1,0 +1,68 @@
+[
+  {
+    "id": "demo-research",
+    "title": "[가상 데모] 연구 논문 비교",
+    "conversation_template_id": "g-p-demo-research",
+    "create_time": 1735689600,
+    "update_time": 1735689700,
+    "current_node": "demo-research-answer",
+    "mapping": {
+      "demo-research-question": {
+        "parent": null,
+        "message": {
+          "id": "demo-research-question",
+          "author": {"role": "user"},
+          "create_time": 1735689600,
+          "content": {"parts": ["가상 대화입니다. [Attention Is All You Need](https://arxiv.org/abs/1706.03762) 논문과 [Learning Transferable Visual Models From Natural Language Supervision](https://arxiv.org/abs/2103.00020) 논문의 학습 방식을 비교해보자."]}
+        }
+      },
+      "demo-research-answer": {
+        "parent": "demo-research-question",
+        "message": {
+          "id": "demo-research-answer",
+          "author": {"role": "assistant"},
+          "create_time": 1735689700,
+          "content": {"parts": ["가상 데모 응답입니다. Attention Is All You Need를 함께 언급하는 경우, 같은 논문의 언급 횟수가 누적되는 모습을 확인할 수 있습니다."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "demo-course",
+    "title": "[가상 데모] 수업 발표 준비",
+    "conversation_template_id": "g-p-demo-course",
+    "create_time": 1735776000,
+    "update_time": 1735776000,
+    "current_node": "demo-course-question",
+    "mapping": {
+      "demo-course-question": {
+        "parent": null,
+        "message": {
+          "id": "demo-course-question",
+          "author": {"role": "user"},
+          "create_time": 1735776000,
+          "content": {"parts": ["이 대화도 실제 사용자 기록이 아닙니다. Attention Is All You Need 논문을 수업 발표 자료로 요약해보자."]}
+        }
+      }
+    }
+  },
+  {
+    "id": "demo-unclassified",
+    "title": "[가상 데모] 프로젝트에 넣지 않은 메모",
+    "conversation_template_id": null,
+    "create_time": 1735862400,
+    "update_time": 1735862400,
+    "current_node": "demo-unclassified-question",
+    "mapping": {
+      "demo-unclassified-question": {
+        "parent": null,
+        "message": {
+          "id": "demo-unclassified-question",
+          "author": {"role": "user"},
+          "create_time": 1735862400,
+          "content": {"parts": ["가상 메모입니다. Learning Transferable Visual Models From Natural Language Supervision 논문의 실험을 다시 읽어보자."]}
+        }
+      }
+    }
+  }
+]

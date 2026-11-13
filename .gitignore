@@ -1,0 +1,40 @@
+# Personal exports and mutable application state (never source code).
+/data/
+/.local/
+/backups/
+/artifacts/
+/researchscape.local.json
+
+# Local secrets and settings. Public examples can be tracked deliberately.
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output.
+node_modules/
+/dist/
+/coverage/
+
+# Databases and their active journal files belong with personal data.
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Export archives and accidental root-level ChatGPT dumps.
+*.zip
+*.7z
+/conversations*.json
+/chat.html
+/user.json
+/user_settings.json
+/library_files.json
+
+# Runtime and editor files.
+*.log
+*.pid
+*.tmp
+.DS_Store
+Thumbs.db

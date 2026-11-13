@@ -1,0 +1,16 @@
+{
+  "name": "researchscape",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "start:demo": "node scripts/demo.mjs",
+    "git:setup": "node scripts/setup-git.mjs",
+    "git:check": "node scripts/check-tracked-files.mjs --all",
+    "index": "node server.mjs --index",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check server.mjs && node --check lib/config.mjs && node --check lib/extract.mjs && node --check lib/date-filter.mjs && node --check lib/projects.mjs && node --check lib/paper-links.mjs && node --check lib/bibliography.mjs && node --check lib/reconcile.mjs && node --check lib/local-store.mjs && node --check public/app.js"
+  },
+  "engines": { "node": ">=20" }
+}

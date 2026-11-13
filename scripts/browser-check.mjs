@@ -1,0 +1,215 @@
+// Optional development check: run an isolated headless Edge with CDP on port 9337.
+// Uses only Node built-ins; it never opens a logged-in browser profile.
+// Live-data QA expects a populated dataset. npm test and start:demo do not need personal data.
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import {spawn} from 'node:child_process';
+import {once} from 'node:events';
+import {fileURLToPath} from 'node:url';
+const endpoint='http://127.0.0.1:9337';
+const base=process.env.RESEARCHSCAPE_PREVIEW_URL||'http://127.0.0.1:4317';
+const approvedOrigins=new Set([new URL(base).origin]);
+const target=await (await fetch(endpoint+'/json/new?about:blank',{method:'PUT'})).json();
+const ws=new WebSocket(target.webSocketDebuggerUrl);
+await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject;});
+let serial=0;const pending=new Map(),errors=[],requests=[];
+ws.onmessage=event=>{
+  const data=JSON.parse(event.data);
+  if(data.id){const p=pending.get(data.id);if(!p)return;pending.delete(data.id);data.error?p.reject(new Error(JSON.stringify(data.error))):p.resolve(data.result);}
+  if(data.method==='Runtime.exceptionThrown')errors.push(data.params.exceptionDetails.text+': '+(data.params.exceptionDetails.exception?.description||''));
+  if(data.method==='Network.requestWillBeSent')requests.push(data.params.request.url);
+};
+const call=(method,params={})=>new Promise((resolve,reject)=>{const id=++serial;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+async function run(expression){const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;}
+async function until(expression){for(let i=0;i<150;i++){if(await run(expression))return;await new Promise(r=>setTimeout(r,100));}throw new Error('Timed out waiting for '+expression);}
+async function shot(name){const {data}=await call('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});await fs.writeFile(new URL('../.local/'+name,import.meta.url),Buffer.from(data,'base64'));}
+async function checkLinkFilters(){
+  const data=await(await fetch(base+'/api/overview')).json();
+  const missing=data.papers.filter(p=>!p.identifiers.some(i=>i.url)),present=data.papers.filter(p=>p.identifiers.some(i=>i.url));
+  await run('document.querySelector("#statusFilter").value="all";document.querySelector("#linkFilter").value="missing";document.querySelector("#linkFilter").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#resultCount").textContent.includes('+JSON.stringify('후보 '+missing.length.toLocaleString('ko-KR')+'개')+')');
+  assert.ok(await run('[...document.querySelectorAll(".paper-row .row-title small")].every(e=>e.textContent.includes("원문 링크 없음"))'));
+  assert.equal(await run('document.querySelector("#linkHint").hidden'),false);
+  await run('document.querySelector("#listTab").click()');await shot('preview-unlinked.png');
+  await call('Page.reload');await new Promise(r=>setTimeout(r,300));
+  await until('document.querySelector("#linkFilter")?.value==="missing"&&document.querySelector("#statPapers")?.textContent!=="—"');
+  assert.equal(await run('new URL(location.href).searchParams.get("links")'),'missing');
+  const grace=missing.find(p=>p.id==='name:grace')||missing[0];assert.ok(grace,'a no-link example exists');
+  await run('document.querySelector("#statusFilter").value="all";document.querySelector("#search").value='+JSON.stringify(grace.title)+';document.querySelector("#search").dispatchEvent(new Event("input"))');
+  await until('[...document.querySelectorAll(".paper-row")].some(e=>e.dataset.paper==='+JSON.stringify(grace.id)+')');
+  await run('[...document.querySelectorAll("[data-paper]")].find(e=>e.dataset.paper==='+JSON.stringify(grace.id)+').click()');
+  await until('document.querySelector("#paperDetail h2")?.textContent==='+JSON.stringify(grace.title));
+  assert.ok(await run('document.querySelector(".link-status-note").textContent.includes("실제 논문일 수")'));
+  assert.equal(await run('document.querySelectorAll(".paper-links a[href^=\\"https://\\"]").length'),0);
+  assert.equal(await run('document.querySelector("#reviewStatus").value'),grace.status,'link filter must not change review status');
+  await run('document.querySelector("#closeDrawer").click();document.querySelector("#search").value="";document.querySelector("#linkFilter").value="present";document.querySelector("#linkFilter").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#resultCount").textContent.includes('+JSON.stringify('후보 '+present.length.toLocaleString('ko-KR')+'개')+')');
+  assert.ok(await run('[...document.querySelectorAll(".paper-row .row-title small")].every(e=>e.textContent.includes("원문 링크 있음"))'));
+  const combined=await(await fetch(base+'/api/overview?category=non-coursework&from=2026-11-01&to=2026-11-01')).json();
+  const combinedMissing=combined.papers.filter(p=>!p.identifiers.some(i=>i.url)).length;
+  await run('document.querySelector("#linkFilter").value="missing";document.querySelector("#categoryFilter").value="non-coursework";document.querySelector("#dateFrom").value="2026-11-01";document.querySelector("#dateTo").value="2026-11-01";document.querySelector("#dateTo").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#dateScope").textContent.startsWith("2026-11-01 ~ 2026-11-01")');
+  assert.ok((await run('document.querySelector("#resultCount").textContent')).includes('후보 '+combinedMissing.toLocaleString('ko-KR')+'개'));
+  assert.equal(await run('document.querySelector("#linkFilter").value'),'missing');
+  await run('document.querySelector("#clearDates").click()');
+  await until('document.querySelector("#dateScope").textContent.startsWith("전체 기간")');
+  await run('document.querySelector("#clearSources").click()');
+  await until('document.querySelector("#sourceScope").textContent.startsWith("전체 대화")');
+  await run('document.querySelector("#statusFilter").value="visible";document.querySelector("#linkFilter").value="all";document.querySelector("#linkFilter").dispatchEvent(new Event("change"))');
+  await until('document.querySelectorAll(".graph-node").length===50');
+  assert.equal(await run('new URL(location.href).searchParams.has("links")'),false);
+}
+async function checkManualClassification(){
+  // Exercise writes only against a disposable fixture, never the user's conversation labels.
+  const temp=await fs.mkdtemp(path.join(os.tmpdir(),'researchscape-browser-'));
+  const data=path.join(temp,'data'),state=path.join(temp,'state');await fs.mkdir(data);await fs.mkdir(state);
+  const fixture=(id,project,text)=>({id,title:id,conversation_template_id:project,current_node:id,create_time:1,mapping:{[id]:{parent:null,message:{id,author:{role:'user'},content:{parts:[text]},create_time:1}}}});
+  await fs.writeFile(path.join(data,'conversations.json'),JSON.stringify([fixture('unassigned',null,'SlotFM 논문과 RoNIN 논문'),fixture('course','g-p-fixture-course','SlotFM 논문'),fixture('identifier','g-p-fixture-course','https://doi.org/10.1234/slotfm')]));
+  await fs.writeFile(path.join(state,'projects.json'),JSON.stringify({'g-p-fixture-course':{name:'Fixture course',category:'coursework'}}));
+  const officialTitle='SlotFM: Foundation Learning for Human Motion Modeling',doi='10.1234/slotfm';
+  await fs.writeFile(path.join(state,'bibliography.json'),JSON.stringify({records:{['doi:'+doi]:{id:'doi:'+doi,title:officialTitle,authors:['Fixture Author'],year:2026,venue:'Fixture venue',provider:'Crossref',sourceUrl:'https://api.crossref.org/works/'+doi,url:'https://doi.org/'+doi,identifiers:[{key:'doi:'+doi,kind:'doi',value:doi,url:'https://doi.org/'+doi}]}},lookups:{}}));
+  const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+  const child=spawn(process.execPath,[path.join(root,'server.mjs')],{env:{...process.env,PORT:'0',RESEARCHSCAPE_DATA_DIR:data,RESEARCHSCAPE_STATE_DIR:state},stdio:['ignore','pipe','pipe']});
+  let logs='';child.stderr.on('data',d=>logs+=d);
+  try{
+    const url=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error('fixture startup timeout '+logs)),10000);child.stdout.on('data',d=>{logs+=d;const m=/ready at (http:\/\/127\.0\.0\.1:\d+)/.exec(logs);if(m){clearTimeout(timer);resolve(m[1]);}});child.on('error',reject);});
+    approvedOrigins.add(new URL(url).origin);
+    await fetch(url+'/api/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'name:slotfm',status:'confirmed'})});
+    await call('Emulation.setDeviceMetricsOverride',{width:1600,height:1080,deviceScaleFactor:1,mobile:false});
+    await call('Page.navigate',{url});await new Promise(r=>setTimeout(r,150));
+    await until('document.querySelector("#statMentions")?.textContent==="4"');
+    await run('document.querySelector("#statusFilter").value="confirmed";document.querySelector("#linkFilter").value="missing";document.querySelector("#linkFilter").dispatchEvent(new Event("change"))');
+    await until('document.querySelectorAll(".paper-row").length===1');
+    assert.equal(await run('document.querySelector(".paper-row strong").textContent'),'SlotFM','confirmed paper without links stays in the missing-link view');
+    await run('document.querySelector("#categoryFilter").value="unclassified";document.querySelector("#categoryFilter").dispatchEvent(new Event("change"))');
+    await until('document.querySelector("#statMentions").textContent==="2"');
+    await run('document.querySelector("[data-paper=\\"name:slotfm\\"]").click()');
+    await until('document.querySelector("[data-classify-conversation]")!==null');
+    await run('document.querySelector("[data-classify-conversation]").value="research";document.querySelector("[data-classify-conversation]").dispatchEvent(new Event("change",{bubbles:true}))');
+    await until('document.querySelector("#drawer").hidden&&document.querySelector("#statMentions").textContent==="0"');
+    await run('document.querySelector("#categoryFilter").value="research";document.querySelector("#categoryFilter").dispatchEvent(new Event("change"))');
+    await until('document.querySelector("#statMentions").textContent==="2"');
+    await run('document.querySelector("[data-paper=\\"name:slotfm\\"]").click()');
+    await until('document.querySelector(".mention-source > .source-tag")?.textContent.includes("수동")');
+    assert.equal(await run('document.querySelector("[data-classify-conversation]").value'),'research');
+    assert.ok((await run('document.querySelector(".mention-source").textContent')).includes('프로젝트 정보 없음'));
+    await run('document.querySelector("[data-classify-conversation]").value="inherit";document.querySelector("[data-classify-conversation]").dispatchEvent(new Event("change",{bubbles:true}))');
+    await until('document.querySelector("#drawer").hidden&&document.querySelector("#statMentions").textContent==="0"');
+    const labels=JSON.parse(await fs.readFile(path.join(state,'conversation-labels.json'),'utf8'));assert.deepEqual(labels,{});
+    await run('document.querySelector("#statusFilter").value="all";document.querySelector("#linkFilter").value="all";document.querySelector("#clearSources").click()');
+    await until('document.querySelector("#statMentions").textContent==="4"');
+    await run('document.querySelector("#bibliographyOpen").click()');
+    await until('document.querySelectorAll("[data-bib-match]").length>0');
+    await run('document.querySelector("[data-bib-match]").click()');
+    await until('document.querySelectorAll("[data-bib-match]").length===0');
+    await run('document.querySelector("#closeBibliography").click()');
+    await run('[...document.querySelectorAll("[data-paper]")].find(e=>e.dataset.paper==="doi:10.1234/slotfm").click()');
+    await until('document.querySelector("#paperDetail h2")?.textContent==='+JSON.stringify(officialTitle));
+    assert.ok(await run('document.querySelector(".paper-identity").textContent.includes("SlotFM")'));
+    assert.ok(await run('document.querySelector(".paper-identity .badge").textContent.includes("Crossref")'));
+    assert.equal(await run('document.querySelector("#reviewStatus").value'),'confirmed','existing human review survives bibliographic merge');
+    assert.ok(await run('document.querySelector("[data-unmerge]")!==null'));
+    await run('document.querySelector("[data-unmerge]").click()');
+    await until('document.querySelector("#drawer").hidden');
+    const afterUndo=await(await fetch(url+'/api/overview')).json();assert.equal(afterUndo.stats.mergedCandidates,0);
+    assert.equal(afterUndo.papers.find(p=>p.id==='name:slotfm').title,'SlotFM');
+    assert.ok(afterUndo.papers.find(p=>p.id==='name:slotfm').observedTitles.some(t=>t.text==='SlotFM'));
+  }finally{
+    const done=once(child,'exit');child.kill();await done;
+    const resolved=path.resolve(temp);assert.ok(resolved.startsWith(path.resolve(os.tmpdir())+path.sep)&&path.basename(resolved).startsWith('researchscape-browser-'));
+    await fs.rm(resolved,{recursive:true,force:true});
+  }
+}
+try{
+  await call('Page.enable');await call('Runtime.enable');await call('Network.enable');
+  await call('Emulation.setDeviceMetricsOverride',{width:1600,height:1080,deviceScaleFactor:1,mobile:false});
+  await call('Page.navigate',{url:base+'/'});
+  await until('document.querySelectorAll(".graph-node").length===50');
+  await shot('preview-desktop.png');
+  await checkLinkFilters();
+  assert.ok((await run('document.querySelector("#statConversations").textContent'))!=='—');
+  await run('document.querySelector(".graph-node").dispatchEvent(new MouseEvent("click",{bubbles:true}))');
+  await until('document.querySelectorAll(".mention").length>0');
+  await run('document.querySelector("[data-context]").click()');
+  await until('document.querySelectorAll(".context-message").length>0');
+  await shot('preview-detail.png');
+  await run('document.querySelector("#roleFilter").value="user";document.querySelector("#roleFilter").dispatchEvent(new Event("change"))');
+  await until('document.querySelectorAll(".mention").length>0 && [...document.querySelectorAll(".mention-meta .badge")].every(e=>e.textContent==="내 메시지")');
+  await run('document.querySelector("#closeDrawer").click();document.querySelector("#listTab").click()');
+  assert.equal(await run('document.querySelector("#listArea").hidden'),false);
+  await run('document.querySelector("#search").value="MAML";document.querySelector("#search").dispatchEvent(new Event("input"))');
+  await until('document.querySelectorAll(".paper-row").length>0&&document.querySelector("#search").value==="MAML"');
+  await new Promise(r=>setTimeout(r,250));
+  const knownMaml=await(await fetch(base+'/api/overview')).json();
+  const expectedMaml=new Set(knownMaml.papers.filter(p=>[p.title,...p.aliases].some(t=>t.toLowerCase().includes('maml'))).map(p=>p.id));
+  assert.ok((await run('[...document.querySelectorAll(".paper-row")].map(e=>e.dataset.paper)')).every(id=>expectedMaml.has(id)),'search finds preserved aliases even when the official title changes');
+  await run('document.querySelector("#addSource").click()');assert.equal(await run('document.querySelector("#importDialog").open'),true);await run('document.querySelector("#closeImport").click()');
+  await run('document.querySelector("#search").value="";document.querySelector("#search").dispatchEvent(new Event("input"));document.querySelector("#graphTab").click()');
+  await until('document.querySelectorAll(".graph-node").length===50');
+  const originalCount=await run('document.querySelector("#statMentions").textContent');
+  const excluded=await (await fetch(base+'/api/overview?category=non-coursework')).json();
+  await run('document.querySelector("#categoryFilter").value="non-coursework";document.querySelector("#categoryFilter").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#sourceScope").textContent.startsWith("수업·과제 제외")');
+  assert.equal(await run('document.querySelector("#statMentions").textContent'),excluded.stats.mentions.toLocaleString('ko-KR'));
+  assert.ok(excluded.categoryCounts.unclassified>0,'unclassified mentions must remain visible');
+  assert.equal(excluded.categoryCounts.coursework,0);
+  await until('document.querySelectorAll(".graph-node").length>0');
+  await run('document.querySelector(".graph-node").dispatchEvent(new MouseEvent("click",{bubbles:true}))');
+  await until('document.querySelectorAll(".mention").length>0');
+  assert.equal(await run('document.querySelectorAll(".mention-source > .source-tag.coursework").length'),0);
+  assert.ok(await run('document.querySelectorAll("[data-classify-conversation]").length>0'),'manual conversation classification controls');
+  await run('document.querySelector("#closeDrawer").click()');
+  const courseScope=await (await fetch(base+'/api/overview?category=coursework')).json();
+  await run('document.querySelector("#categoryFilter").value="coursework";document.querySelector("#categoryFilter").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#sourceScope").textContent.startsWith("수업·과제 ·")');
+  assert.equal(await run('document.querySelector("#statMentions").textContent'),courseScope.stats.mentions.toLocaleString('ko-KR'));
+  await shot('preview-coursework.png');
+  const project=excluded.projects.find(p=>p.category==='research'&&p.conversationCount>0);
+  assert.ok(project,'a named research project exists');
+  const byProject=await (await fetch(base+'/api/overview?project='+encodeURIComponent(project.id))).json();
+  await run('document.querySelector("#categoryFilter").value="all";document.querySelector("#projectFilter").value='+JSON.stringify(project.id)+';document.querySelector("#projectFilter").dispatchEvent(new Event("change"))');
+  await until('new URL(location.href).searchParams.get("project")==='+JSON.stringify(project.id));
+  assert.equal(await run('document.querySelector("#statMentions").textContent'),byProject.stats.mentions.toLocaleString('ko-KR'));
+  await call('Page.reload');await new Promise(r=>setTimeout(r,300));
+  await until('document.querySelector("#projectFilter")?.value==='+JSON.stringify(project.id));
+  await run('document.querySelector("#clearSources").click()');
+  await until('document.querySelector("#statMentions").textContent==='+JSON.stringify(originalCount));
+  const scoped=await (await fetch(base+'/api/overview?from=2026-11-01&to=2026-11-01')).json();
+  await run('document.querySelector("#dateFrom").value="2026-11-01";document.querySelector("#dateTo").value="2026-11-01";document.querySelector("#dateTo").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#dateScope").textContent.startsWith("2026-11-01 ~ 2026-11-01")');
+  assert.equal(await run('document.querySelector("#statMentions").textContent'),scoped.stats.mentions.toLocaleString('ko-KR'));
+  assert.equal(await run('new URL(location.href).searchParams.get("from")'),'2026-11-01');
+  await shot('preview-dates.png');
+  if(scoped.papers.length){
+    await until('document.querySelectorAll(".graph-node").length>0');
+    await run('document.querySelector(".graph-node").dispatchEvent(new MouseEvent("click",{bubbles:true}))');
+    await until('document.querySelectorAll(".mention").length>0');
+    const expectedDate=new Date('2026-11-01T12:00:00+09:00').toLocaleDateString('ko-KR',{timeZone:'Asia/Seoul'});
+    assert.ok((await run('[...document.querySelectorAll(".mention-meta > span:nth-child(2)")].map(e=>e.textContent)')).every(t=>t===expectedDate));
+    await run('document.querySelector("#closeDrawer").click()');
+  }
+  await call('Page.reload');await new Promise(r=>setTimeout(r,300));
+  await until('document.querySelector("#dateScope")?.textContent.startsWith("2026-11-01 ~ 2026-11-01")');
+  assert.equal(await run('document.querySelector("#dateFrom").value'),'2026-11-01');
+  await run('document.querySelector("#dateFrom").value="2026-11-02";document.querySelector("#dateFrom").dispatchEvent(new Event("change"))');
+  assert.equal(await run('document.querySelector("#dateError").hidden'),false);
+  await run('document.querySelector("#dateFrom").value="2030-01-01";document.querySelector("#dateTo").value="2030-01-01";document.querySelector("#dateTo").dispatchEvent(new Event("change"))');
+  await until('document.querySelector("#dateScope").textContent.startsWith("2030-01-01 ~ 2030-01-01")');
+  assert.equal(await run('document.querySelector("#statMentions").textContent'),'0');
+  await until('document.querySelectorAll(".graph-node").length===0');
+  await run('document.querySelector("#clearDates").click()');
+  await until('document.querySelector("#dateScope").textContent.startsWith("전체 기간")');
+  assert.equal(await run('document.querySelector("#statMentions").textContent'),originalCount);
+  await until('document.querySelectorAll(".graph-node").length===50');
+  await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+  await new Promise(r=>setTimeout(r,800));
+  assert.ok(await run('document.documentElement.scrollWidth<=window.innerWidth'),'mobile horizontal overflow');
+  await shot('preview-mobile.png');
+  await checkManualClassification();
+  assert.deepEqual(errors,[],'browser JavaScript errors');
+  const external=requests.filter(u=>{const parsed=new URL(u);return ['http:','https:'].includes(parsed.protocol)&&!approvedOrigins.has(parsed.origin);});
+  assert.deepEqual(external,[],'unexpected external network request');
+  console.log(JSON.stringify({passed:['graph renders','missing/present paper links + URL reload','GraCE retained without auto-dismissal','confirmed no-link paper retained (isolated fixture)','detail + context','role filter','list + search','import dialog','coursework excluded + unclassified retained','source labels + manual controls','manual classify + reset (isolated fixture)','named project filter + URL reload','date filter + scoped counts + details','date URL reload','invalid range + empty range + reset','mobile layout','no JS exceptions','no external requests'],screenshots:['.local/preview-desktop.png','.local/preview-unlinked.png','.local/preview-detail.png','.local/preview-coursework.png','.local/preview-dates.png','.local/preview-mobile.png']},null,2));
+}finally{ws.close();await fetch(endpoint+'/json/close/'+target.id);}
