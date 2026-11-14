@@ -64,3 +64,5 @@ JSON에는 후보 제목·식별자 키·제공자별 상태만 포함하며 대
 `lookupSummary`/`byProvider`는 429, 접근 거부, 제공자 대기, HTTP 오류 등을 별도로 집계합니다. 식별자 조회의 구형 404 로그는 `identifier-not-indexed`로 구별합니다. 후보별 원인과 전체 조회 로그 수는 서로 다른 집계입니다. **검색 결과 없음이나 Crossref의 DOI 404는 논문 미존재를 뜻하지 않습니다.** 구형 로그의 HTTP 상태는 오류 문자열에서 복원하며, 상세 상태가 없는 구형 네트워크/파싱 오류는 더 세밀하게 구별할 수 없습니다.
 
 공식 API 참고: [OpenAlex 제목 검색](https://help.openalex.org/api/searching/), [Semantic Scholar Graph API](https://api.semanticscholar.org/api-docs/graphs).
+
+검토 JSON은 이제 전체 진단과 30~50건 compact 형식을 분리합니다. 같은 대화만의 약칭 병합을 제한하고 Work·Version 관계를 별도 제안합니다. 입력 스키마·dry-run·최종 승인 흐름은 [검토 JSON과 가져오기](bibliography-review.md)를 참고하세요.

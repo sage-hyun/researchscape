@@ -14,6 +14,7 @@ const bibliographyReason=reason=>({
   'identifier-title-conflict':'식별자가 가리키는 논문과 대화의 제목이 다릅니다.',
   'citation-title-conflict':'예전 인용 메타데이터의 제목이 원문 표기와 정확히 맞지 않습니다.',
   'insufficient-alias-evidence':'약칭의 정식 제목·식별자 근거가 부족합니다.',
+  'insufficient-local-alias-evidence':'같은 대화에 정식 제목이 있지만, 이 약칭의 동일·인접 메시지 근거가 부족합니다.',
   'candidate-type:conference':'학회명 후보입니다. 자동 연결에서 제외했습니다.',
   'candidate-type:technology':'일반 기술명 후보입니다. 자동 연결에서 제외했습니다.',
   'candidate-type:dataset':'데이터셋 이름 후보입니다. 자동 연결에서 제외했습니다.',
@@ -237,6 +238,7 @@ async function refreshBibDialog(){
   clearTimeout(bibTimer);
   try{
     const data=await api('/api/bibliography'),job=data.job||{};
+    window.ResearchscapeBibliographyReview?.refresh(data);
     $('#bibSync').disabled=!!job.running;$('#bibStop').hidden=!job.running;
     $('#bibStatus').innerHTML=job.running?`<strong>조회 중 ${num(job.completed)} / ${num(job.total)}</strong><span>${esc(job.current||'준비 중')}</span>`:`<strong>${['error','interrupted'].includes(job.stage)?'조회 중단':job.finishedAt?'최근 조회 완료':'조회 대기'}</strong><span>${num(data.recordCount)}개 서지 레코드 · 조회 오류 ${num(data.lookupErrors)}건${job.error?' · '+esc(job.error):''}</span>`;
     $('#bibStats').innerHTML=`<span><strong>${num(data.stats.metadataVerified)}</strong> 공식정보 연결</span><span><strong>${num(data.stats.mergedCandidates)}</strong> 후보 병합</span><span><strong>${num(data.stats.recoveredCitationPapers)}</strong> 인용 메타데이터 복원</span><span><strong>${num(data.stats.needsMetadataReview)}</strong> 연결 검토</span>`;

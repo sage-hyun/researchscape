@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {activeMessages, buildIndex, graphEdges, hash, RULE_VERSION} from './lib/extract.mjs';
 import {dateRange,filterIndex} from './lib/date-filter.mjs';
@@ -12,6 +13,7 @@ import {saveJSON,loadJSON,storeVersion} from './lib/local-store.mjs';
 import {storagePaths} from './lib/config.mjs';
 import {FigureManager} from './lib/figure-manager.mjs';
 import {publicRoutes,requestAccess} from './lib/request-access.mjs';
+import {compactReviewExport,reviewGroups,reviewSnapshot,reviewResultSchema,planReviewImport,applyReviewPlan} from './lib/bibliography-review.mjs';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const {data:DATA,state:LOCAL}=storagePaths(ROOT);
@@ -26,6 +28,8 @@ let conversationLabels=load('conversation-labels.json',{}),labelRevision=0;
 let bibliography=load('bibliography.json',{records:{},lookups:{}}),bibDecisions=load('bibliography-decisions.json',{}),rawIndex;
 let bibliographyJob=load('bibliography-job.json',{running:false}),bibStamp='';
 let bibliographyController=null;
+const reviewPlans=new Map();
+const reviewStamp=()=>reviewSnapshot([rawIndex.signature,bibStamp]);
 const bibliographyStamp=()=>['bibliography.json','bibliography-decisions.json'].map(name=>storeVersion(LOCAL,name)).join(':');
 function applyBibliography(){index=reconcileIndex(rawIndex,bibliography,bibDecisions);bibStamp=bibliographyStamp();}
 function refreshBibliography(){if(bibStamp!==bibliographyStamp()){bibliography=load('bibliography.json',{records:{},lookups:{}});bibDecisions=load('bibliography-decisions.json',{});applyBibliography();}}
@@ -118,7 +122,7 @@ function context(cid,mid) {
   if(at<0)return null;
   return messages.slice(Math.max(0,at-1),at+2).map(m=>({...m,target:m.id===mid,text:m.text.slice(0,24000),truncated:m.text.length>24000}));
 }
-const publicFiles=new Set(['index.html','style.css','app.js','media.js']);
+const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js']);
 const server=http.createServer(async(req,res)=>{
   try {
     const url=new URL(req.url,'http://127.0.0.1');
@@ -184,12 +188,36 @@ const server=http.createServer(async(req,res)=>{
       if(job.running&&job.ownerPid){try{process.kill(job.ownerPid,0);}catch{job.running=false;job.stage='interrupted';job.error='앞선 조회가 중단됐습니다. 저장된 캐시를 사용해 다시 시작할 수 있습니다.';}}
       const diagnostics=bibliographyDiagnostics(rawIndex,bibliography,index);
       const lookupErrors=Object.entries(diagnostics.lookupSummary).filter(([kind])=>!['retrieved','no-match','identifier-not-indexed'].includes(kind)).reduce((sum,[,n])=>sum+n,0);
-      return json(res,200,{job,recordCount:Object.keys(bibliography.records||{}).length,stats:index.stats,queue:index.resolutionQueue,lookupErrors,diagnostics});
+      const groups=reviewGroups(rawIndex,index,bibDecisions);
+      return json(res,200,{job,recordCount:Object.keys(bibliography.records||{}).length,stats:index.stats,queue:index.resolutionQueue,lookupErrors,diagnostics,reviewTotals:{withCandidates:groups.withCandidates.length,withoutCandidates:groups.withoutCandidates.length}});
     }
     if(req.method==='GET'&&url.pathname==='/api/bibliography/export'){
       refreshBibliography();
-      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':'attachment; filename="researchscape-review.json"','Cache-Control':'no-store'});
-      return res.end(JSON.stringify({instructions:'Suggest matches only using verifiable metadata evidence. Do not invent identifiers or treat similarity scores as probabilities. Ambiguous acronyms require review. Suggestions do not apply changes automatically. Conversation bodies are deliberately omitted.',queue:index.resolutionQueue,unresolved:index.papers.filter(p=>!p.metadata).map(p=>({id:p.id,observedTitles:p.observedTitles,identifiers:p.identifiers,count:p.count}))},null,2));
+      const format=url.searchParams.get('format')||'full';if(!['compact','full'].includes(format))throw new Error('compact 또는 full 형식을 선택해주세요.');
+      let exported;
+      if(format==='compact')exported=compactReviewExport(rawIndex,index,bibDecisions,Object.fromEntries(url.searchParams));
+      else {
+        const queued=new Set(index.resolutionQueue.map(q=>q.id)),groups=reviewGroups(rawIndex,index,bibDecisions),wanted=new Set(groups.withoutCandidates.map(p=>p.candidateId));
+        exported={schemaVersion:2,kind:'diagnostics',queue:index.resolutionQueue,unresolved:rawIndex.papers.filter(p=>wanted.has(p.id)&&!queued.has(p.id)).map(p=>({id:p.id,title:p.title,observedTitles:[...new Set([p.title,...(p.aliases||[])])].map(text=>({text,sourceId:p.id})),identifiers:p.identifiers,count:p.count})),reviewTotals:{withCandidates:groups.withCandidates.length,withoutCandidates:groups.withoutCandidates.length},diagnostics:bibliographyDiagnostics(rawIndex,bibliography,index),records:bibliography.records,lookups:bibliography.lookups,providerLookups:bibliography.providerLookups||{}};
+      }
+      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="researchscape-${format==='compact'?'llm-review':'diagnostics'}.json"`,'Cache-Control':'no-store'});
+      return res.end(JSON.stringify(exported));
+    }
+    if(req.method==='GET'&&url.pathname==='/api/bibliography/review-schema')return json(res,200,reviewResultSchema);
+    if(req.method==='POST'&&url.pathname==='/api/bibliography/review/dry-run'){
+      const value=await body(req);refreshBibliography();const plan=planReviewImport(rawIndex,bibliography,index,bibDecisions,value),expiresAt=Date.now()+10*60000;
+      for(const [id,entry] of reviewPlans)if(entry.expiresAt<Date.now())reviewPlans.delete(id);
+      if(reviewPlans.size>=20)reviewPlans.delete(reviewPlans.keys().next().value);
+      const dryRunId=randomUUID();reviewPlans.set(dryRunId,{plan,stamp:reviewStamp(),expiresAt});
+      return json(res,200,{...plan,dryRunId,expiresAt:new Date(expiresAt).toISOString(),writes:0});
+    }
+    if(req.method==='POST'&&url.pathname==='/api/bibliography/review/apply'){
+      const data=await body(req);refreshBibliography();const entry=reviewPlans.get(data.dryRunId);
+      if(data.approved!==true)throw new Error('사용자 최종 승인이 필요합니다.');
+      if(!entry||entry.expiresAt<Date.now()||entry.stamp!==reviewStamp())return json(res,409,{error:'미리보기가 만료되었거나 서지정보·수동 결정이 변경되었습니다. dry-run을 다시 실행해주세요.'});
+      const next=applyReviewPlan(entry.plan,bibDecisions,data.candidateIds);
+      save('bibliography-decisions.json',next);bibDecisions=next;applyBibliography();reviewPlans.delete(data.dryRunId);
+      return json(res,200,{ok:true,applied:data.candidateIds.length});
     }
     if(req.method==='POST'&&url.pathname==='/api/bibliography/sync'){
       const data=await body(req),limit=data.limit===undefined?80:Number(data.limit);

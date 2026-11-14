@@ -36,7 +36,7 @@ test('local import, review, context, reindex and access boundaries work together
     });
     const page=await proxyRequest('/');assert.equal(page.status,200);
     const html=await page.text();
-    for(const path of ['/rs/app.js','/rs/media.js','/rs/style.css','/rs/api/bibliography/export'])assert.ok(html.includes(path),`Missing ${path}: ${html.slice(0,600)}`);
+    for(const path of ['/rs/app.js','/rs/media.js','/rs/bibliography-review.js','/rs/style.css','/rs/api/bibliography/export'])assert.ok(html.includes(path),`Missing ${path}: ${html.slice(0,600)}`);
     assert.equal((await proxyRequest('/app.js')).status,200);
     assert.equal((await proxyRequest('/api/overview')).status,200);
     assert.equal((await proxyRequest('/api/review',{...proxy,Origin:'https://fixture.tailnet.ts.net'},{id,status:'confirmed',pdfKey:'ABCD1234'})).status,200);
