@@ -1,0 +1,4 @@
+opendataloader-pdf==2.5.22
+pypdfium2>=4.30,<6
+Pillow>=10,<13
+pypdf>=5,<7

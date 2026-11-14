@@ -10,8 +10,14 @@
     "git:check": "node scripts/check-tracked-files.mjs --all",
     "index": "node server.mjs --index",
     "bibliography:diagnose": "node scripts/diagnose-bibliography.mjs",
+    "figures:setup": "node scripts/setup-figures.mjs",
+    "figures:scan": "node scripts/figures.mjs --scan",
+    "figures:local": "node scripts/figures.mjs",
+    "figures:acquire": "node scripts/figures.mjs --acquire",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.mjs && node --check lib/config.mjs && node --check lib/extract.mjs && node --check lib/date-filter.mjs && node --check lib/projects.mjs && node --check lib/paper-links.mjs && node --check lib/bibliography.mjs && node --check lib/bibliography-policy.mjs && node --check lib/bibliography-links.mjs && node --check lib/bibliography-catalog.mjs && node --check lib/bibliography-diagnostics.mjs && node --check lib/reconcile.mjs && node --check lib/local-store.mjs && node --check scripts/diagnose-bibliography.mjs && node --check public/app.js"
+    "check": "node scripts/check-source.mjs"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -1,0 +1,20 @@
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {storagePaths} from '../lib/config.mjs';
+import {loadJSON} from '../lib/local-store.mjs';
+import {reconcileIndex} from '../lib/reconcile.mjs';
+import {FigureManager} from '../lib/figure-manager.mjs';
+const root=path.dirname(path.dirname(fileURLToPath(import.meta.url))),{state}=storagePaths(root),raw=loadJSON(state,'index.json',null);
+if(!raw)throw new Error('먼저 Researchscape를 실행해 색인을 만들어주세요.');
+const index=reconcileIndex(raw,loadJSON(state,'bibliography.json',{records:{},lookups:{}}),loadJSON(state,'bibliography-decisions.json',{})),reviews=loadJSON(state,'reviews.json',{});
+const papers=index.papers.map(p=>{
+  const own=reviews[p.id]||{},members=(p.memberIds||[p.id]).map(id=>reviews[id]).filter(Boolean),result={...p,status:members.some(r=>r.status==='confirmed')?'confirmed':members.length&&members.every(r=>r.status==='dismissed')?'dismissed':'unreviewed',...own};
+  for(const key of ['itemKey','pdfKey'])if(!result[key]){const values=[...new Set(members.map(r=>r[key]).filter(Boolean))];if(values.length===1)result[key]=values[0];}return result;
+});
+const manager=new FigureManager({root,state,getPapers:()=>papers}),args=process.argv.slice(2),option=name=>args.includes(name)?args[args.indexOf(name)+1]:undefined;
+const progress=manager.progress.bind(manager);manager.progress=update=>{progress(update);console.log(JSON.stringify({stage:manager.job.stage,completed:manager.job.completed,total:manager.job.total,current:manager.job.current,error:manager.job.error}));};
+process.once('SIGINT',()=>manager.controller&&manager.stop());
+manager.start({mode:args.includes('--zotero-all')?'zotero-all':args.includes('--scan')?'scan':args.includes('--acquire')?'all':option('--paper')?'paper':'local',limit:option('--limit')==='all'?3000:Number(option('--limit')||10),paperId:option('--paper'),force:args.includes('--force'),zoteroRoot:option('--zotero')});
+await manager.promise;
+const {summary,zotero}=manager.overview();console.log(JSON.stringify({summary,zotero}));
+if(manager.job.stage==='error')process.exitCode=1;

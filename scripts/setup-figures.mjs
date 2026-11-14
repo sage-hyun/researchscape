@@ -1,0 +1,12 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const directory=path.join(root,'.local','figure-venv'),python=path.join(directory,process.platform==='win32'?'Scripts/python.exe':'bin/python');
+fs.mkdirSync(path.dirname(directory),{recursive:true});
+const run=(command,args)=>{const r=spawnSync(command,args,{cwd:root,stdio:'inherit',windowsHide:true});if(r.error)throw r.error;if(r.status!==0)process.exit(r.status||1);};
+run(process.env.RESEARCHSCAPE_PYTHON||'python',['-m','venv','--system-site-packages',directory]);
+run(python,['-m','pip','install','-r',path.join(root,'scripts','figure-requirements.txt')]);
+run('java',['-version']);
+run(python,['-c','import opendataloader_pdf,pypdfium2,PIL,pypdf; print("Figure extraction ready (local mode)")']);

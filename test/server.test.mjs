@@ -6,10 +6,12 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
+import {request} from 'node:http';
 
 test('local import, review, context, reindex and access boundaries work together',async()=>{
   const temp=await fs.mkdtemp(path.join(os.tmpdir(),'researchscape-test-'));
   const data=path.join(temp,'data'),state=path.join(temp,'state');await fs.mkdir(data);
+  await fs.mkdir(state);await fs.writeFile(path.join(state,'access.json'),JSON.stringify({publicUrls:['https://fixture.tailnet.ts.net/rs/']}));
   const root=path.dirname(path.dirname(fileURLToPath(import.meta.url)));
   const conv=(text,update_time=1)=>({id:'c1',title:'Fixture conversation',create_time:1,update_time,current_node:'m1',mapping:{m1:{parent:null,message:{id:'m1',author:{role:'user'},create_time:1,content:{parts:[text]}}}}});
   await fs.writeFile(path.join(data,'conversations.json'),JSON.stringify([conv('SlotFM 논문과 RoNIN 논문을 비교하자.')]));
@@ -26,6 +28,20 @@ test('local import, review, context, reindex and access boundaries work together
     assert.equal((await post('/api/review',{id,status:'confirmed',pdfKey:'ABCD1234'})).status,200);
     assert.equal((await post('/api/review',{id,status:'confirmed',pdfKey:'<script>'})).status,400);
     assert.equal((await post('/api/reindex',{}, {Origin:'https://external.example'})).status,403);
+    const proxy={Host:'fixture.tailnet.ts.net'};
+    // fetch/Undici may ignore Host overrides. Use actual HTTP Host headers.
+    const proxyRequest=(route,headers=proxy,data)=>new Promise((resolve,reject)=>{
+      const req=request(url+route,{method:data?'POST':'GET',headers:{...headers,...(data?{'Content-Type':'application/json'}:{})}},res=>{let text='';res.setEncoding('utf8');res.on('data',chunk=>text+=chunk);res.on('end',()=>resolve({status:res.statusCode,text:async()=>text}));});
+      req.on('error',reject);req.end(data?JSON.stringify(data):undefined);
+    });
+    const page=await proxyRequest('/');assert.equal(page.status,200);
+    const html=await page.text();
+    for(const path of ['/rs/app.js','/rs/media.js','/rs/style.css','/rs/api/bibliography/export'])assert.ok(html.includes(path),`Missing ${path}: ${html.slice(0,600)}`);
+    assert.equal((await proxyRequest('/app.js')).status,200);
+    assert.equal((await proxyRequest('/api/overview')).status,200);
+    assert.equal((await proxyRequest('/api/review',{...proxy,Origin:'https://fixture.tailnet.ts.net'},{id,status:'confirmed',pdfKey:'ABCD1234'})).status,200);
+    assert.equal((await proxyRequest('/api/review',{...proxy,Origin:'https://outside.example'},{id,status:'dismissed'})).status,403);
+    assert.equal((await proxyRequest('/',{Host:'other.tailnet.ts.net'})).status,403);
     assert.equal((await fetch(url+'/data/conversations.json')).status,404);
     const pasted={title:'Added source',text:'SlotFM 논문을 추가로 검토해보자.'};
     assert.equal((await post('/api/import',pasted)).status,200);

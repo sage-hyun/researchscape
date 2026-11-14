@@ -12,6 +12,9 @@
 
 # Dependencies and build output.
 node_modules/
+__pycache__/
+*.py[cod]
+/.venv/
 /dist/
 /coverage/
 

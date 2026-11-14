@@ -40,6 +40,19 @@ npm run start:demo  # 개인 대화 없이 공개 가상 예시로 실행: 포�
 - Export 업데이트: `data/` 안의 기존 export를 새 export로 교체한 뒤 **Export 다시 읽기**를 누르세요. 분할 파일 `conversations-000.json` 등과 `conversations.json` 모두 지원합니다. 동일 대화 ID가 여러 파일에 있으면 update_time이 최신인 것을 택합니다. 재읽기는 전체 스냅샷 재구축이며 메시지 단위 증분 분석은 아직 없습니다.
 - Zotero: 상세에서 개인 라이브러리 항목 Key와 PDF 첨부 Key를 각각 등록하면 `zotero://`로 열 수 있습니다. Key는 서로 다릅니다. Zotero 설치와 브라우저의 외부 앱 실행 허용이 필요합니다. 자동 매칭·Local API 동기화·그룹 라이브러리는 미구현입니다.
 
+## PDF·Figure 썸네일
+
+상단 **PDF·Figure**에서 Zotero의 기존 PDF를 연결하고 Figure를 일괄 추출합니다. 기본 대표 이미지는 Figure 1이며, 논문 상세 갤러리에서 다른 Figure를 고르거나 페이지 위에서 영역을 직접 드래그해 바꿀 수 있습니다. 논문 목록과 그래프 미리보기에 선택한 이미지가 표시됩니다.
+
+**Zotero 전체 Figure 추출**을 누르면 10편 시험 제한을 해제하고, 대화와 연결되지 않은 PDF까지 로컬에서 순차 처리합니다. 이미 끝난 PDF는 재사용하고 중단 후 다시 누르면 미완료·실패 파일만 재시도합니다. LLM이나 API 키는 필요 없으며 추가 PDF를 다운로드하지 않습니다. 브라우저를 닫아도 Node 서버가 실행 중이면 계속됩니다.
+
+```powershell
+npm.cmd run figures:setup  # Python 가상환경과 OpenDataLoader PDF 설치, Java 확인
+node server.mjs
+```
+
+Zotero PDF는 원본 경로를 읽기만 합니다. 없는 PDF는 **없는 PDF 확보·추출**에서 공개 다운로드를 시도하고, 로그인·사람 확인이 필요하면 브라우저에서 받은 파일을 논문 상세의 **PDF 파일 연결**로 가져옵니다. 추출 이미지·다운로드 PDF·선택 기록은 Git 제외 폴더 `.local/media/`에 보관합니다. PDF를 AI 서버로 전송하지 않습니다. 설치·연결 기준·저장 구조·중단 후 재개는 [PDF 확보와 Figure 대표 이미지](docs/pdf-and-figures.md)를 참고하세요.
+
 ## 추출 방식과 한계
 
 1. 현재 선택된 `current_node`부터 parent를 따라 대화 경로를 복원합니다. user와 화면에 보이는 assistant의 최종 텍스트만 사용합니다. 도구 출력, 내부 분석, 다른 재생성 분기는 제외합니다. 유효한 current_node가 없는 대화는 임의로 경로를 선택하지 않으며 overview API의 `stats.warnings`에 기록합니다.
@@ -53,7 +66,22 @@ npm run start:demo  # 개인 대화 없이 공개 가상 예시로 실행: 포�
 
 ## 데이터와 실행
 
-원본 대화 처리는 로컬에서 수행하며 서버는 `127.0.0.1`에만 바인딩합니다. 외부 스크립트·폰트·분석 도구 요청은 없습니다. 선택적인 서지 조회에서는 서버가 `api.crossref.org`, `export.arxiv.org`, `api2.openreview.net`, `api.openalex.org`, `api.semanticscholar.org`에 논문 제목·식별자를 보냅니다. 원문 링크와 Zotero 버튼은 클릭할 때 외부 페이지/앱을 엽니다. 서버는 `data/` 자체를 웹으로 노출하지 않습니다. 인증은 없으므로 포트 포워딩하거나 공유 호스팅에 올리지 마세요.
+원본 대화 처리는 로컬에서 수행하며 서버는 `127.0.0.1`에만 바인딩합니다. 외부 스크립트·폰트·분석 도구 요청은 없습니다. 선택적인 서지 조회에서는 서버가 `api.crossref.org`, `export.arxiv.org`, `api2.openreview.net`, `api.openalex.org`, `api.semanticscholar.org`에 논문 제목·식별자를 보냅니다. 원문 링크와 Zotero 버튼은 클릭할 때 외부 페이지/앱을 엽니다. 서버는 `data/` 자체를 웹으로 노출하지 않습니다. 앱 자체 인증은 없으며, Tailscale Serve에서는 tailnet 접근 제어를 사용합니다. 인터넷 포트 포워딩·Funnel·공유 호스팅으로 공개하지 마세요.
+
+### Tailscale Serve
+
+Serve의 HTTPS 주소를 `.local/access.json`에 등록한 뒤 서버를 재시작하세요. 상태 폴더를 바꿨다면 해당 폴더의 `access.json`을 사용합니다. 이 파일은 개인 설정으로 Git에서 제외됩니다.
+
+```json
+{"publicUrls":["https://your-device.your-tailnet.ts.net/rs/"]}
+```
+
+```powershell
+tailscale serve --bg --set-path=/rs http://127.0.0.1:4317
+node server.mjs
+```
+
+또는 `$env:RESEARCHSCAPE_PUBLIC_URL='https://your-device.your-tailnet.ts.net/rs/'`로 한 개 주소를 지정할 수 있습니다. 환경변수가 파일 설정보다 우선합니다. 실제 Serve의 도메인·HTTPS 포트·경로와 정확하게 맞추세요. 루트로 제공하면 `/rs/` 대신 `/`를 지정합니다. 등록된 Host와 HTTPS Origin만 추가 허용하며, 기존 localhost 접속도 유지됩니다. Serve가 제거하는 경로 접두사를 HTML·API·Figure·PDF·업로드 링크에 복원합니다. 임의의 `*.ts.net` 주소나 `X-Forwarded-*` 헤더는 신뢰하지 않습니다. [Tailscale Serve 문서](https://tailscale.com/docs/reference/tailscale-cli/serve)를 참고하세요.
 
 `data/`와 `.local/`은 `.gitignore`에서 제외합니다. `sources.json`, `reviews.json`, `projects.json`, `conversation-labels.json`, `bibliography-decisions.json`에는 사용자의 입력·분류·연결 결정이 있어 보관해야 합니다. `index.json`은 원본 추출 캐시, `bibliography.json`은 공식 조회 결과·조회 캐시, `bibliography-job.json`은 진행 상태입니다. 원본 Export는 수정하지 않습니다. 프로젝트 이름이나 기본 분류를 파일에서 바꾼 경우 서버를 재시작하면 적용됩니다. Windows 동기화 폴더의 일시적 파일 잠금에는 재시도합니다. 장시간 파일 교체가 막히면 `파일명.v-시간-….json` 스냅샷에 기록하고 앱은 최신 스냅샷을 자동으로 읽습니다. 최근 3개를 유지하므로 기본 JSON 파일과 이 스냅샷들을 함께 보관하세요. 기존 파일을 먼저 지우거나 덮어쓰기 중간 상태로 노출하지 않습니다.
 

@@ -10,10 +10,14 @@ import {reconcileIndex} from './lib/reconcile.mjs';
 import {bibliographyDiagnostics} from './lib/bibliography-diagnostics.mjs';
 import {saveJSON,loadJSON,storeVersion} from './lib/local-store.mjs';
 import {storagePaths} from './lib/config.mjs';
+import {FigureManager} from './lib/figure-manager.mjs';
+import {publicRoutes,requestAccess} from './lib/request-access.mjs';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const {data:DATA,state:LOCAL}=storagePaths(ROOT);
 fs.mkdirSync(LOCAL,{recursive:true});
+const access=loadJSON(LOCAL,'access.json',{publicUrls:[]});
+const routes=publicRoutes(process.env.RESEARCHSCAPE_PUBLIC_URL?[process.env.RESEARCHSCAPE_PUBLIC_URL]:access.publicUrls);
 const load=(name,fallback)=>loadJSON(LOCAL,name,fallback);
 const save=(name,value)=>saveJSON(LOCAL,name,value);
 let sources=load('sources.json',[]), reviews=load('reviews.json',{}), index, files=[], busy=false;
@@ -64,23 +68,27 @@ rebuild(process.argv.includes('--index'));
 if(process.argv.includes('--index'))process.exit(0);
 
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
+const localAsset=(res,file,headers)=>{res.writeHead(200,headers);const stream=fs.createReadStream(file);stream.on('error',()=>{if(!res.headersSent)json(res,404,{error:'로컬 파일을 읽지 못했습니다.'});else res.destroy();});res.once('close',()=>stream.destroy());stream.pipe(res);};
+const media=new FigureManager({root:ROOT,state:LOCAL,getPapers:()=>enriched(index.papers,false)});
 async function body(req) {
   let chunks=[],size=0;
   for await(const chunk of req){size+=chunk.length;if(size>2_000_000)throw new Error('입력은 2MB 이하로 줄여주세요.');chunks.push(chunk);}
   return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');
 }
-const enriched=(papers=index.papers)=>papers.map(p=>{
+const enriched=(papers=index.papers,includeMedia=true)=>papers.map(p=>{
   const memberReviews=(p.memberIds||[p.id]).filter(id=>reviews[id]).map(id=>({id,...reviews[id]}));
   const allDismissed=(p.sourceCandidateIds||[p.id]).every(id=>reviews[id]?.status==='dismissed');
   const inherited={status:memberReviews.some(r=>r.status==='confirmed')?'confirmed':allDismissed?'dismissed':'unreviewed'};
   for(const key of ['itemKey','pdfKey']){const values=[...new Set(memberReviews.map(r=>r[key]).filter(Boolean))];if(values.length===1)inherited[key]=values[0];}
   const explicit=reviews[p.id]?.resolutionMemberIds||(p.sourceCandidateIds||[p.id]).length<=1;
-  return {...p,...inherited,...(explicit?reviews[p.id]:{}),memberReviews,reviewConflict:new Set(memberReviews.map(r=>r.status)).size>1};
+  const result={...p,...inherited,...(explicit?reviews[p.id]:{}),memberReviews,reviewConflict:new Set(memberReviews.map(r=>r.status)).size>1};
+  return {...result,...(includeMedia?{media:media.summary(result)}:{})};
 });
 const resolvePaperId=id=>index.papers.some(p=>p.id===id)?id:index.redirects?.[id]||id;
 let lastScope=null;
 function scope(url) {
   refreshBibliography();
+  media.refresh();
   const range=dateRange(url.searchParams),filters=sourceFilter(url.searchParams),key=JSON.stringify([range.from,range.to,filters.category,filters.project,labelRevision]);
   if(lastScope?.index!==index||lastScope.key!==key){
     const labels=new Map(index.conversations.map(c=>[c.id,classifyConversation(c,projects,conversationLabels)]));
@@ -110,14 +118,48 @@ function context(cid,mid) {
   if(at<0)return null;
   return messages.slice(Math.max(0,at-1),at+2).map(m=>({...m,target:m.id===mid,text:m.text.slice(0,24000),truncated:m.text.length>24000}));
 }
-const publicFiles=new Set(['index.html','style.css','app.js']);
+const publicFiles=new Set(['index.html','style.css','app.js','media.js']);
 const server=http.createServer(async(req,res)=>{
   try {
     const url=new URL(req.url,'http://127.0.0.1');
-    // Only this local page can mutate the store; reject cross-site requests.
-    if(!['127.0.0.1','localhost'].includes((req.headers.host||'').split(':')[0]))return json(res,403,{error:'Local host only'});
-    if(req.method!=='GET' && req.headers.origin && req.headers.origin!==`http://${req.headers.host}`)return json(res,403,{error:'다른 사이트에서의 요청은 허용되지 않습니다.'});
-    if(req.method!=='GET' && !String(req.headers['content-type']).startsWith('application/json'))return json(res,415,{error:'JSON required'});
+    const access=requestAccess(req,routes);
+    if(access.status)return json(res,access.status,{error:access.error});
+    const pdfUpload=req.method==='POST'&&url.pathname==='/api/media/upload';
+    if(req.method!=='GET' && !String(req.headers['content-type']).startsWith(pdfUpload?'application/pdf':'application/json'))return json(res,415,{error:pdfUpload?'PDF required':'JSON required'});
+    if(url.pathname.startsWith('/api/media')){
+      refreshBibliography();media.refresh();
+      const getMediaPaper=id=>{const p=enriched(index.papers,false).find(p=>p.id===resolvePaperId(id));if(!p)throw new Error('논문 후보를 찾지 못했습니다.');return p;};
+      if(req.method==='GET'&&url.pathname==='/api/media')return json(res,200,media.overview());
+      if(req.method==='GET'&&url.pathname==='/api/media/paper')return json(res,200,media.detail(getMediaPaper(url.searchParams.get('id'))));
+      if(req.method==='GET'&&url.pathname==='/api/media/library'){
+        const query=(url.searchParams.get('q')||'').trim().toLowerCase();
+        return json(res,200,{records:media.records.filter(r=>r.exists&&(!query||[r.title,r.attachmentTitle,r.itemKey,r.attachmentKey].some(t=>t?.toLowerCase().includes(query)))).slice(0,100).map(r=>({id:r.id,title:r.title,filename:path.basename(r.path||''),source:r.source,itemKey:r.itemKey,attachmentKey:r.attachmentKey}))});
+      }
+      if(req.method==='GET'&&url.pathname==='/api/media/pdf'){
+        const record=media.records.find(r=>r.id===url.searchParams.get('pdf'));if(!record?.exists||!fs.existsSync(record.path))return json(res,404,{error:'등록된 PDF를 찾지 못했습니다.'});
+        localAsset(res,record.path,{'Content-Type':'application/pdf','Content-Disposition':'inline; filename="paper.pdf"','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'});return;
+      }
+      if(req.method==='GET'&&url.pathname==='/api/media/image'){
+        const file=media.imagePath(url.searchParams.get('pdf'),url.searchParams.get('figure'));if(!file)return json(res,404,{error:'이미지를 찾지 못했습니다.'});
+        localAsset(res,file,{'Content-Type':'image/webp','Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'});return;
+      }
+      if(req.method==='GET'&&url.pathname==='/api/media/page'){
+        const file=await media.page(getMediaPaper(url.searchParams.get('id')),Number(url.searchParams.get('page')));localAsset(res,file,{'Content-Type':'image/webp','Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'});return;
+      }
+      if(req.method==='POST'&&url.pathname==='/api/media/job'){
+        const data=await body(req);if(data.paperId)data.paperId=getMediaPaper(data.paperId).id;media.start(data);return json(res,202,{ok:true});
+      }
+      if(req.method==='POST'&&url.pathname==='/api/media/stop'){media.stop();return json(res,200,{ok:true});}
+      if(req.method==='POST'&&url.pathname==='/api/media/pdf-choice'){const d=await body(req),p=getMediaPaper(d.paperId);return json(res,200,d.auto===true?media.resetPdf(p):media.choosePdf(p,d.pdfId));}
+      if(req.method==='POST'&&url.pathname==='/api/media/thumbnail'){const d=await body(req);return json(res,200,media.chooseFigure(getMediaPaper(d.paperId),d.figureId,{auto:d.auto===true}));}
+      if(req.method==='POST'&&url.pathname==='/api/media/crop'){const d=await body(req);return json(res,200,await media.crop(getMediaPaper(d.paperId),d));}
+      if(pdfUpload){
+        const p=getMediaPaper(url.searchParams.get('id')),chunks=[];let size=0;
+        for await(const chunk of req){size+=chunk.length;if(size>100*1024*1024)throw new Error('PDF는 100MB 이하만 지원합니다.');chunks.push(chunk);}
+        return json(res,200,await media.importPdf(p,Buffer.concat(chunks),{filename:url.searchParams.get('filename')||'paper.pdf'}));
+      }
+      return json(res,404,{error:'알 수 없는 PDF 작업입니다.'});
+    }
     if(req.method==='GET'&&url.pathname==='/api/overview') {
       const selected=scope(url);
       return json(res,200,{generatedAt:index.generatedAt,stats:selected.stats,papers:enriched(selected.papers),range:selected.range,filters:selected.filters,categoryCounts:selected.categoryCounts,projects:projectCatalog(index.conversations,projects),sourceFiles:index.sourceFiles,busy});
@@ -224,7 +266,10 @@ const server=http.createServer(async(req,res)=>{
     if(!publicFiles.has(name))return json(res,404,{error:'Not found'});
     const mime=name.endsWith('.css')?'text/css':name.endsWith('.js')?'text/javascript':'text/html';
     res.writeHead(200,{'Content-Type':`${mime}; charset=utf-8`,'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",'Referrer-Policy':'no-referrer'});
-    res.end(fs.readFileSync(path.join(ROOT,'public',name)));
+    const content=fs.readFileSync(path.join(ROOT,'public',name));
+    // Serve strips the mount path. Restore it in page links and script URLs;
+    // the client resolves its API/PDF/image URLs relative to app.js.
+    res.end(name==='index.html'&&access.basePath?content.toString('utf8').replace(/\b(href|src)="\/(?!\/)/g,`$1="${access.basePath}/`):content);
   }catch(e){console.error(e.message);json(res,400,{error:e.message});}
 });
 const port=process.env.PORT===undefined?4317:Number(process.env.PORT);
