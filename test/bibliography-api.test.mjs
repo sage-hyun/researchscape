@@ -31,6 +31,7 @@ test('official titles, preserved reviews, human matching, unmerge and restart wo
     assert.ok(paper.observedTitles.some(t=>t.text==='SMPL'));assert.equal(paper.count,2);
     assert.equal((await get('/api/paper?id='+titleId)).paper.id,'doi:10.1234/smpl');
     const bib=await get('/api/bibliography');assert.equal(bib.queue.length,1);assert.equal(bib.queue[0].id,'name:grace');
+    assert.equal(bib.diagnostics.summary.linked,2);assert.ok(paper.links.doi.length);assert.equal((await post('/api/bibliography/stop')).status,409);
     assert.ok(!JSON.stringify(await get('/api/bibliography/export')).includes('PRIVATE_CONTEXT_NOT_FOR_EXPORT'));
     assert.equal((await post('/api/bibliography/decision',{candidateId:'name:grace',recordId:'doi:10.1234/grace',action:'match'})).status,200);
     const matched=await get('/api/paper?id=name:grace');assert.equal(matched.paper.title,records[1].title);assert.equal(matched.paper.resolution.reason,'user-confirmed');assert.equal(matched.paper.count,1);assert.ok(matched.paper.observedTitles.some(t=>t.text==='GraCE'));

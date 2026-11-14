@@ -1,0 +1,17 @@
+{
+  "papers": [
+    {"alias":"MAML","title":"Model-Agnostic Meta-Learning for Fast Adaptation of Deep Networks","arxiv":"1703.03400"},
+    {"alias":"CLIP","title":"Learning Transferable Visual Models From Natural Language Supervision","arxiv":"2103.00020"},
+    {"alias":"SMPL","title":"SMPL: A Skinned Multi-Person Linear Model","doi":"10.1145/2816795.2818013"},
+    {"alias":"IMUTube","title":"IMUTube: Automatic Extraction of Virtual on-body Accelerometry from Video for Human Activity Recognition","doi":"10.1145/3411841"}
+  ],
+  "nonPapers": [
+    {"title":"ZUPT","kind":"technology"},
+    {"title":"CHI","kind":"conference"},
+    {"title":"CHI 2025","kind":"conference"},
+    {"title":"AMASS","kind":"dataset"},
+    {"title":"Related Work on Human Motion Learning","kind":"section-heading"},
+    {"title":"Model Architecture for Inertial Motion Learning","kind":"section-heading"},
+    {"title":"Motion Learning: Key Idea and Architecture","kind":"section-heading"}
+  ]
+}

@@ -7,6 +7,7 @@ import {dateRange,filterIndex} from './lib/date-filter.mjs';
 import {CATEGORIES,classifyConversation,sourceFilter,matchingConversations,projectCatalog,paperCategories} from './lib/projects.mjs';
 import {synchronizeBibliography,validRecord} from './lib/bibliography.mjs';
 import {reconcileIndex} from './lib/reconcile.mjs';
+import {bibliographyDiagnostics} from './lib/bibliography-diagnostics.mjs';
 import {saveJSON,loadJSON,storeVersion} from './lib/local-store.mjs';
 import {storagePaths} from './lib/config.mjs';
 
@@ -20,6 +21,7 @@ const projects=load('projects.json',{});
 let conversationLabels=load('conversation-labels.json',{}),labelRevision=0;
 let bibliography=load('bibliography.json',{records:{},lookups:{}}),bibDecisions=load('bibliography-decisions.json',{}),rawIndex;
 let bibliographyJob=load('bibliography-job.json',{running:false}),bibStamp='';
+let bibliographyController=null;
 const bibliographyStamp=()=>['bibliography.json','bibliography-decisions.json'].map(name=>storeVersion(LOCAL,name)).join(':');
 function applyBibliography(){index=reconcileIndex(rawIndex,bibliography,bibDecisions);bibStamp=bibliographyStamp();}
 function refreshBibliography(){if(bibStamp!==bibliographyStamp()){bibliography=load('bibliography.json',{records:{},lookups:{}});bibDecisions=load('bibliography-decisions.json',{});applyBibliography();}}
@@ -32,7 +34,7 @@ function findFiles(dir) {
 function signature(list) {return hash(JSON.stringify({version:RULE_VERSION,files:list.map(f=>[path.relative(ROOT,f),fs.statSync(f).size,fs.statSync(f).mtimeMs]),sources}));}
 function rebuild(force=false) {
   files=findFiles(DATA);
-  const sig=signature(files), cached=!force&&load('index.json',null);
+  const sig=signature(files), previous=load('index.json',null),cached=!force&&previous;
   if(cached?.signature===sig) {
     rawIndex=cached;applyBibliography();
     for(const [id,file] of cached.conversationFiles||[])conversationFiles.set(id,file);
@@ -54,7 +56,7 @@ function rebuild(force=false) {
     }
   }
   for(const s of sources)cs.set(s.id,s);
-  rawIndex={...buildIndex([...cs.values()],{sourceFiles:files.map(f=>path.relative(ROOT,f)),warnings}),signature:sig,conversationFiles:[...conversationFiles]};
+  rawIndex={...buildIndex([...cs.values()],{sourceFiles:files.map(f=>path.relative(ROOT,f)),warnings,priorIndex:previous}),signature:sig,conversationFiles:[...conversationFiles]};
   save('index.json',rawIndex);applyBibliography();
   console.log(`Indexed ${index.stats.conversations} conversations / ${index.stats.messages} messages / ${index.stats.papers} candidates / ${index.stats.mentions} mentions.`);
 }
@@ -138,7 +140,9 @@ const server=http.createServer(async(req,res)=>{
       refreshBibliography();
       const job=bibliographyJob.ownerPid===process.pid?bibliographyJob:load('bibliography-job.json',bibliographyJob);
       if(job.running&&job.ownerPid){try{process.kill(job.ownerPid,0);}catch{job.running=false;job.stage='interrupted';job.error='앞선 조회가 중단됐습니다. 저장된 캐시를 사용해 다시 시작할 수 있습니다.';}}
-      return json(res,200,{job,recordCount:Object.keys(bibliography.records||{}).length,stats:index.stats,queue:index.resolutionQueue,lookupErrors:Object.values(bibliography.lookups||{}).filter(l=>l.status==='error').length});
+      const diagnostics=bibliographyDiagnostics(rawIndex,bibliography,index);
+      const lookupErrors=Object.entries(diagnostics.lookupSummary).filter(([kind])=>!['retrieved','no-match','identifier-not-indexed'].includes(kind)).reduce((sum,[,n])=>sum+n,0);
+      return json(res,200,{job,recordCount:Object.keys(bibliography.records||{}).length,stats:index.stats,queue:index.resolutionQueue,lookupErrors,diagnostics});
     }
     if(req.method==='GET'&&url.pathname==='/api/bibliography/export'){
       refreshBibliography();
@@ -151,15 +155,21 @@ const server=http.createServer(async(req,res)=>{
       const existing=load('bibliography-job.json',{});
       if(existing.running&&existing.ownerPid){try{process.kill(existing.ownerPid,0);return json(res,409,{error:'이미 서지정보를 조회하고 있습니다.'});}catch{}}
       bibliographyJob={running:true,ownerPid:process.pid,startedAt:new Date().toISOString(),completed:0,total:0,stage:'starting'};save('bibliography-job.json',bibliographyJob);
+      bibliographyController=new AbortController();
       json(res,202,{ok:true});
       setImmediate(async()=>{
         try{
           refreshBibliography();
-          const counts=await synchronizeBibliography(rawIndex,bibliography,{limit,onSave:value=>{bibliography=value;save('bibliography.json',value);},onProgress:progress=>{bibliographyJob={...bibliographyJob,...progress};save('bibliography-job.json',bibliographyJob);}});
+          const counts=await synchronizeBibliography(rawIndex,bibliography,{limit,signal:bibliographyController.signal,onSave:value=>{bibliography=value;save('bibliography.json',value);},onProgress:progress=>{bibliographyJob={...bibliographyJob,...progress};save('bibliography-job.json',bibliographyJob);}});
           applyBibliography();bibliographyJob={...bibliographyJob,...counts,running:false,finishedAt:new Date().toISOString(),stage:'complete'};
-        }catch(e){bibliographyJob={...bibliographyJob,running:false,stage:'error',error:e.message};}
+        }catch(e){applyBibliography();bibliographyJob={...bibliographyJob,running:false,stage:bibliographyController?.signal.aborted?'interrupted':'error',error:e.message};}
+        bibliographyController=null;
         try{save('bibliography-job.json',bibliographyJob);}catch(e){console.error('서지 작업 상태 저장 실패:',e.message);}
       });return;
+    }
+    if(req.method==='POST'&&url.pathname==='/api/bibliography/stop'){
+      if(!bibliographyController)return json(res,409,{error:'이 서버에서 실행 중인 서지 조회가 없습니다.'});
+      bibliographyController.abort(new Error('조회 중단 · 저장된 제공자별 캐시에서 다시 시작할 수 있습니다.'));return json(res,200,{ok:true});
     }
     if(req.method==='POST'&&url.pathname==='/api/bibliography/decision'){
       const data=await body(req);refreshBibliography();

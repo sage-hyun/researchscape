@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {activeMessages,identifiers,discover,buildIndex,graphEdges} from '../lib/extract.mjs';
+import {activeMessages,identifiers,discover,buildIndex,graphEdges,hash} from '../lib/extract.mjs';
 
 test('only the selected branch contributes user and visible assistant messages',()=>{
   const message=(id,text,role='assistant',channel)=>({id,author:{role},content:{parts:[text]},channel});
@@ -31,16 +31,35 @@ test('a short paper alias does not also match its hyphenated variant',()=>{
   assert.equal(index.papers.find(p=>p.title==='SMPL').count,1);
   assert.equal(index.papers.find(p=>p.title==='SMPL-X').count,2);
 });
-test('identifier link labels supply titles and merge unique short aliases',()=>{
+test('identifier link labels supply titles while short aliases await evidence-based reconciliation',()=>{
   const index=buildIndex([doc('c1','[SlotFM: A Motion Foundation Model for Learning](https://arxiv.org/abs/2501.12345)와 SlotFM 논문을 비교.')]);
-  assert.equal(index.papers.length,1);assert.equal(index.papers[0].id,'arxiv:2501.12345');assert.equal(index.papers[0].identifiers.length,1);
-  assert.ok(index.papers[0].title.startsWith('SlotFM:'));
-  assert.equal(index.papers[0].count,2,'a title + linked identifier is one citation, not two');
+  assert.equal(index.papers.length,2);const linked=index.papers.find(p=>p.id==='arxiv:2501.12345');assert.equal(linked.identifiers.length,1);
+  assert.ok(linked.title.startsWith('SlotFM:'));assert.equal(linked.count,1);
+  assert.equal(index.mentions.length,2,'a title + linked identifier is one citation, not two');
 });
 test('ambiguous short aliases do not merge different identifier records',()=>{
   const index=buildIndex([doc('c1','[PACT: A Learning Model for Motion](https://arxiv.org/abs/2501.11111)\n[PACT: Another Model for Motion Learning](https://arxiv.org/abs/2501.22222)\nPACT 논문')]);
   assert.equal(index.papers.filter(p=>p.identifiers.length).length,2);
   for(const p of index.papers.filter(p=>p.identifiers.length))assert.equal(p.count,1,'ambiguous acronym must not attach to both papers');
+});
+test('case variants and ambiguous prefixes keep their original mention spans as provisional aliases',()=>{
+  const a='RoNIN: Robust Neural Inertial Navigation in the Wild';
+  const raw=buildIndex([doc('a',`**${a}** 논문. RONIN 논문`),doc('b','RoNIN 모델 학습')]);
+  const alias=raw.papers.find(p=>p.id==='name:ronin');assert.equal(alias.count,2);assert.ok(alias.aliases.includes('RoNIN'));assert.ok(alias.aliases.includes('RONIN'));
+  const short=buildIndex([doc('link','[SMPL](https://doi.org/10.1234/wrong) 논문')]);assert.equal(short.mentions.length,1);assert.equal(short.mentions[0].quote,'10.1234/wrong','adding a short label must preserve the identifier span');
+});
+test('extraction upgrades preserve original evidence only for unchanged selected messages',()=>{
+  const input=[doc('c','어떤 일반 용어의 SensorXYZ 표현을 논의합니다.')],prior=buildIndex(input),text=input[0].messages[0].text;
+  const quote='SensorXYZ',start=text.indexOf(quote),id='doi:10.1234/legacy';
+  prior.papers=[{id,title:'Former Sensor Motion Representation Learning Paper',aliases:[quote],identifiers:[],memberIds:[id]}];
+  const mention={id:'legacy-mention',paperId:id,conversationId:'c',messageId:'m1',start,end:start+quote.length,quote,excerpt:text,excerptStart:start,excerptEnd:start+quote.length,role:'user',date:1,contentHash:hash(text)};
+  prior.mentions=[mention];
+  const next=buildIndex(input,{priorIndex:prior});assert.equal(next.mentions.length,1);assert.equal(next.stats.preservedLegacyMentions,1);
+  assert.equal(next.mentions[0].paperId,'name:sensorxyz','legacy short aliases must remain provisional');assert.equal(next.mentions[0].sourcePaperId,id);
+  for(const key of ['quote','excerpt','excerptStart','excerptEnd','contentHash','date','role'])assert.equal(next.mentions[0][key],mention[key]);
+  assert.deepEqual(buildIndex(input,{priorIndex:next}).mentions,next.mentions);
+  assert.equal(buildIndex([doc('c',text+' 수정')],{priorIndex:prior}).mentions.length,0);
+  assert.equal(buildIndex([],{priorIndex:prior}).mentions.length,0,'deleted or deselected messages cannot reappear');
 });
 test('rebuilding is idempotent and edges count shared conversations, not repeated mentions',()=>{
   const docs=[doc('c1','SlotFM 논문, RoNIN 논문. SlotFM 모델의 학습 방법과 RoNIN 모델 비교.'),doc('c2','SlotFM 논문, RoNIN 논문.')];
