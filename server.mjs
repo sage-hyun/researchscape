@@ -14,6 +14,8 @@ import {storagePaths} from './lib/config.mjs';
 import {FigureManager} from './lib/figure-manager.mjs';
 import {publicRoutes,requestAccess} from './lib/request-access.mjs';
 import {compactReviewExport,reviewGroups,reviewSnapshot,reviewResultSchema,planReviewImport,applyReviewPlan} from './lib/bibliography-review.mjs';
+import {createZoteroAPI} from './lib/zotero-api.mjs';
+import {createAnnotationAPI} from './lib/annotation-api.mjs';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const {data:DATA,state:LOCAL}=storagePaths(ROOT);
@@ -122,7 +124,18 @@ function context(cid,mid) {
   if(at<0)return null;
   return messages.slice(Math.max(0,at-1),at+2).map(m=>({...m,target:m.id===mid,text:m.text.slice(0,24000),truncated:m.text.length>24000}));
 }
-const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js']);
+const researchPaper=id=>{const p=enriched(index.papers,false).find(p=>p.id===resolvePaperId(id));if(!p)throw new Error('논문을 찾지 못했습니다.');return p;};
+const researchIndex=()=>({papers:enriched(index.papers,false),mentions:index.mentions,conversations:index.conversations,projects:projectCatalog(index.conversations,projects)});
+const researchContexts=async paper=>{
+  const conversations=new Map(index.conversations.map(c=>[c.id,c]));
+  return index.mentions.filter(m=>m.paperId===paper.id).sort((a,b)=>(b.date||0)-(a.date||0)).slice(0,200).map(m=>{
+    const label=classifyConversation(conversations.get(m.conversationId),projects,conversationLabels),url=m.url||(/^[a-zA-Z0-9-]+$/.test(m.conversationId)&&m.source!=='paste'?`https://chatgpt.com/c/${encodeURIComponent(m.conversationId)}`:null);
+    return {mentionId:m.id,paperId:paper.id,conversationId:m.conversationId,messageId:m.messageId,projectId:label.projectId,projectName:label.projectName,conversationTitle:m.conversationTitle,quote:m.quote,text:m.excerpt,url};
+  });
+};
+const zoteroAPI=createZoteroAPI({state:LOCAL,media,getIndex:researchIndex,json,body});
+const annotationAPI=createAnnotationAPI({root:ROOT,state:LOCAL,media,getPaper:researchPaper,getContexts:researchContexts,client:zoteroAPI.client,json,body,asset:localAsset});
+const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js','zotero.js','annotations.js']);
 const server=http.createServer(async(req,res)=>{
   try {
     const url=new URL(req.url,'http://127.0.0.1');
@@ -130,6 +143,8 @@ const server=http.createServer(async(req,res)=>{
     if(access.status)return json(res,access.status,{error:access.error});
     const pdfUpload=req.method==='POST'&&url.pathname==='/api/media/upload';
     if(req.method!=='GET' && !String(req.headers['content-type']).startsWith(pdfUpload?'application/pdf':'application/json'))return json(res,415,{error:pdfUpload?'PDF required':'JSON required'});
+    if(url.pathname.startsWith('/api/zotero/')){refreshBibliography();media.refresh();return zoteroAPI.handle(req,res,url);}
+    if(url.pathname.startsWith('/api/annotations/')){refreshBibliography();media.refresh();return annotationAPI.handle(req,res,url);}
     if(url.pathname.startsWith('/api/media')){
       refreshBibliography();media.refresh();
       const getMediaPaper=id=>{const p=enriched(index.papers,false).find(p=>p.id===resolvePaperId(id));if(!p)throw new Error('논문 후보를 찾지 못했습니다.');return p;};

@@ -166,6 +166,7 @@ function renderDetail({paper:p,total,mentions}){
   if(!hasPaperLink(p)){const note=document.createElement('p');note.className='link-status-note';note.textContent='등록된 논문 원문 링크가 없습니다. 링크가 없어도 실제 논문일 수 있으며, 후보 검토 상태와는 별개입니다.';$('.paper-links').after(note);}
   const breakdown=document.createElement('div');breakdown.className='source-breakdown';breakdown.innerHTML=`<span>이 논문의 언급 출처</span><div>${categoryBadges(p.categoryCounts)}</div><small>선택한 필터 범위에서 집계 · 같은 논문도 여러 출처에 등장할 수 있습니다.</small>`;$('.drawer-stats').after(breakdown);
   window.researchscapeMedia?.render(p);
+  window.researchscapeAnnotations?.render(p);
   $('#reviewStatus').onchange=()=>saveReview();$('#saveZotero').onclick=()=>saveReview();$('#roleFilter').onchange=()=>{state.role=$('#roleFilter').value;state.offset=0;fetchMentions(false);};$('#moreMentions').onclick=()=>fetchMentions(true);
 }
 async function saveReview(){

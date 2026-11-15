@@ -42,6 +42,8 @@ npm run start:demo  # 개인 대화 없이 공개 가상 예시로 실행: 포�
 
 ## PDF·Figure 썸네일
 
+**Zotero 10·AI 주석**: 상단 **Zotero 동기화**에서 프로젝트별 Collection 추가를 dry-run 후 승인할 수 있습니다. 논문 상세 **AI 주석** 탭에서는 선택한 원문/대화만 LLM용 JSON으로 내보내고, 반환 주석을 검증·승인해 자식 노트나 별도 Highlight PDF 사본으로 저장합니다. LLM 자동 호출과 원본 PDF/SQLite 수정은 하지 않습니다. [설정·UI·API·저장·검증 범위](docs/zotero-annotations.md)를 참고하세요.
+
 상단 **PDF·Figure**에서 Zotero의 기존 PDF를 연결하고 Figure를 일괄 추출합니다. 기본 대표 이미지는 Figure 1이며, 논문 상세 갤러리에서 다른 Figure를 고르거나 페이지 위에서 영역을 직접 드래그해 바꿀 수 있습니다. 논문 목록과 그래프 미리보기에 선택한 이미지가 표시됩니다.
 
 **Zotero 전체 Figure 추출**을 누르면 10편 시험 제한을 해제하고, 대화와 연결되지 않은 PDF까지 로컬에서 순차 처리합니다. 이미 끝난 PDF는 재사용하고 중단 후 다시 누르면 미완료·실패 파일만 재시도합니다. LLM이나 API 키는 필요 없으며 추가 PDF를 다운로드하지 않습니다. 브라우저를 닫아도 Node 서버가 실행 중이면 계속됩니다.
