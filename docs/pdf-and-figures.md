@@ -1,12 +1,12 @@
 # PDF 확보와 Figure 대표 이미지
 
-상단 **PDF·Figure**에서 Zotero PDF를 연결하고 Figure를 일괄 추출합니다. **논문 목록**의 썸네일, 논문 상세의 갤러리, 그래프 노드의 마우스 미리보기에서 사용합니다.
+상단 **PDF 확보**에서 PDF 수집·재확인·업로드·Zotero 저장을 진행하고, 별도 **Figure 추출** 팝업에서 로컬 PDF의 Figure를 일괄 추출합니다. **논문 목록**의 썸네일, 논문 상세의 갤러리, 그래프 노드의 마우스 미리보기에서 사용합니다.
 
-현재 개인 환경은 **선택한 PDF 10편의 시험 모드**로 시작합니다. `media/test-scope.json`의 해시 목록에 든 PDF만 추출·크롭·썸네일 표시를 허용하며, 새로운 PDF 자동 수집은 중지합니다. **Zotero 전체 Figure 추출**을 직접 누르면 시험 제한을 해제하고 기존 캐시를 재사용해 Zotero 전체를 처리합니다. 버튼을 누르기 전에는 범위를 늘리거나 새 추출을 시작하지 않습니다.
+**10편 시험 모드는 폐지했습니다.** 기존 `media/test-scope.json`은 변경하지 않고 기록으로 보존하며, 해시 허용 목록은 더 이상 적용하지 않습니다. 서버를 시작해도 자동 작업은 실행하지 않습니다. PDF 확보·추출은 사용자가 선택한 버튼과 처리 수에 따라 실행하며 기존 캐시·대표 이미지·수동 Crop을 유지합니다.
 
 ## Zotero 전체를 백그라운드에서 추출
 
-상단 **PDF·Figure → Zotero 전체 Figure 추출**을 누르세요. 처리 수 선택과 무관하게 Zotero에 실제로 내려받은 로컬 PDF 전체를 대상으로 합니다. 대화에 연결되지 않은 PDF도 추출 캐시를 만들지만, 모호한 논문 후보와 임의로 연결하지 않습니다. 없는 PDF를 추가 다운로드하는 동작은 포함하지 않습니다.
+상단 **Figure 추출 → Zotero 전체 Figure 추출**을 누르세요. 처리 수 선택과 무관하게 Zotero에 실제로 내려받은 로컬 PDF 전체를 대상으로 합니다. 대화에 연결되지 않은 PDF도 추출 캐시를 만들지만, 모호한 논문 후보와 임의로 연결하지 않습니다. 없는 PDF를 추가 다운로드하는 동작은 포함하지 않습니다.
 
 1. Zotero 목록을 읽기 전용으로 갱신합니다.
 2. PDF의 SHA-256을 확인해 같은 내용의 첨부파일은 한 번만 처리합니다.
@@ -20,7 +20,7 @@
 
 1. **Zotero 목록 갱신**: 기본 `~/Zotero/zotero.sqlite`와 `storage/`를 읽습니다. 대화의 DOI/arXiv ID, 구체적인 정식 제목, 기존에 입력한 Zotero Key와 비교합니다. 파일명만 비슷하다고 연결하지 않습니다. Zotero 데이터 폴더는 화면에서 바꿀 수 있습니다.
 2. **로컬 PDF Figure 추출**: 확실하게 연결된 PDF를 순차 처리합니다. 이미 처리한 동일 PDF는 SHA-256으로 재사용합니다. PDF가 여러 개면 보조자료를 제외한 유일한 본문을 우선하며, 남은 후보가 모호하면 직접 고르게 합니다.
-3. **없는 PDF 확보·추출**: 등록된 PDF URL, arXiv·OpenReview·ACL·CVF·PMLR 등의 경로를 사용합니다. 논문 페이지가 `citation_pdf_url`을 제공하면 그 PDF로 이어갑니다. 받은 PDF의 첫 페이지 제목/식별자를 대조하고, 확인되지 않으면 연결 검토 대상으로 남깁니다.
+3. **PDF 확보 → 선택 범위 자동 확보·추출**: 등록된 PDF URL, arXiv·OpenReview·ACL·CVF·PMLR 등의 경로를 사용합니다. 논문 페이지가 `citation_pdf_url`을 제공하면 그 PDF로 이어갑니다. 받은 PDF의 첫 페이지 제목/식별자를 대조하고, 확인되지 않으면 연결 검토 대상으로 남깁니다.
 4. **브라우저에서 받기**: 로그인·기관 접근·사람 확인이 필요하면 대기 목록의 링크를 열어 사용자가 직접 완료합니다. PDF를 받은 뒤 논문 상세의 **PDF 파일 연결**에서 선택합니다. 다운로드 폴더나 브라우저 쿠키를 몰래 수집하지 않으며, paywall/CAPTCHA를 우회하지 않습니다. 브라우저 확장 설치도 필요 없습니다.
 
 논문 상세의 **다른 로컬 PDF 선택**에서는 Zotero와 Researchscape가 보관한 PDF를 검색해 수동으로 연결할 수 있습니다. 받은 파일이 실제로 같은 논문인지 확인한 후 연결하세요. 수동 PDF 연결은 자동 대조보다 우선합니다. Zotero 자체의 첨부파일·항목 Key를 덮어쓰지는 않습니다.
@@ -48,7 +48,7 @@ npm.cmd run figures:setup
 node server.mjs
 ```
 
-브라우저의 **PDF·Figure** 버튼에서 시작하세요. 개별 논문에 연결된 로컬 PDF 처리의 기본 수는 10편입니다. **Zotero 전체 Figure 추출**은 이 선택과 별개로 Zotero의 모든 로컬 PDF를 처리합니다. 작업 중단 후 다시 시작하면 완료된 PDF를 건너뜁니다. 서버가 종료되어도 완료 단계는 남습니다.
+브라우저의 **Figure 추출** 버튼에서 시작하세요. 개별 논문에 연결된 로컬 PDF 처리의 UI 기본 수는 20편이며 100/3,000편을 선택할 수 있습니다. **Zotero 전체 Figure 추출**은 이 선택과 별개로 Zotero의 모든 로컬 PDF를 처리합니다. 작업 중단 후 다시 시작하면 완료된 PDF를 건너뜁니다. 서버가 종료되어도 완료 단계는 남습니다. 기존 CLI/API의 기본 처리 수 10편은 호출당 기본값으로 유지되며, PDF 해시 허용 목록이나 시험 모드 제한은 없습니다.
 
 CLI에서도 같은 개인 상태와 추출 캐시를 사용합니다.
 
@@ -83,3 +83,7 @@ node scripts/figures.mjs --paper "논문ID" --force
 원본 PDF와 추출 이미지는 개인 로컬 사용을 위한 데이터입니다. 공개 서비스로 Figure를 재배포할 계획이라면 각 논문의 이용 조건을 별도로 확인해야 합니다.
 
 사용한 도구: [OpenDataLoader PDF](https://github.com/opendataloader-project/opendataloader-pdf), [출력 JSON 스키마](https://github.com/opendataloader-project/opendataloader-pdf/blob/main/schema.json), [pypdfium2](https://pypdfium2.readthedocs.io/en/stable/python_api.html).
+
+## 반자동 수집과 Zotero 저장
+
+프로젝트별 확보 대기 목록, Connector 저장 후 재확인, PDF 업로드 검사·승인, Zotero 10 자식 첨부 저장은 [반자동 PDF 확보 안내](assisted-pdf-acquisition.md)를 참고하세요. 기존 다운로드·Figure·Crop 기능을 유지하며, 10편 시험 제한은 폐지했습니다.

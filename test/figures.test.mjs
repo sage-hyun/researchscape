@@ -77,17 +77,38 @@ test('automatic downloads with unverifiable identities remain a confirmation can
   }finally{await x.cleanup();}
 });
 
-test('pilot mode limits extraction and displayed assets while preserving larger existing caches',async()=>{
+test('retired pilot files no longer hide PDFs and leave caches, crops and manual choices intact',async()=>{
   const x=await fixture();try{
     await x.manager.extract(paper);const allowed=x.manager.match(paper).selected.hash;
     const otherHash='b'.repeat(64),otherPaper={...paper,id:'title:outside',memberIds:[],title:'Another Specific Inertial Motion Estimation Research Paper'},otherPdf=path.join(x.dir,'outside.pdf');await fs.writeFile(otherPdf,'%PDF-other-existing-cache');
     const directory=path.join(x.manager.directory,'figures',otherHash);await fs.mkdir(directory,{recursive:true});await fs.writeFile(path.join(directory,'figure-1.webp'),webp);
     x.manager.state.pdfs.outside={id:'outside',title:otherPaper.title,path:otherPdf,hash:otherHash,exists:true,source:'download',identifiers:[]};x.manager.state.artifacts[otherHash]={...x.manager.state.artifacts[allowed],pdfHash:otherHash};x.manager.save();
-    saveJSON(x.manager.directory,'test-scope.json',{enabled:true,pdfHashes:[allowed],items:[{paperId:paper.id,title:paper.title,pdfHash:allowed}]});x.manager.refresh();
-    assert.equal(x.manager.summary(paper).status,'ready');assert.equal(x.manager.summary(otherPaper).status,'outside-pilot');assert.equal(x.manager.detail(otherPaper).figures.length,0);assert.equal(x.manager.imagePath(otherHash,'figure-1-p1'),null);
-    const calls=x.calls().extractionCalls;await assert.rejects(x.manager.extract(otherPaper),/시험/);await assert.rejects(x.manager.acquire(otherPaper),/시험/);assert.equal(x.calls().extractionCalls,calls);
-    assert.throws(()=>x.manager.start({mode:'all'}),/시험/);assert.throws(()=>x.manager.start({mode:'paper',paperId:otherPaper.id}),/시험/);
-    assert.equal(Object.keys(x.manager.state.artifacts).length,2);assert.deepEqual(await fs.readFile(path.join(directory,'figure-1.webp')),webp);assert.equal(x.manager.overview().testScope.ready,1);
+    const crop=await x.manager.crop(paper,{page:1,rect:[.1,.1,.9,.9]});
+    const pilot={enabled:true,pdfHashes:[allowed],items:[{paperId:paper.id,title:paper.title,pdfHash:allowed}]};
+    saveJSON(x.manager.directory,'test-scope.json',pilot);x.manager.refresh();
+    const before=await fs.readFile(path.join(x.manager.directory,'state.json'),'utf8');
+    assert.equal(x.manager.testScope.enabled,false);assert.equal(x.manager.summary(paper).status,'ready');assert.equal(x.manager.summary(otherPaper).status,'ready');assert.equal(x.manager.detail(otherPaper).figures.length,3);assert.ok(x.manager.imagePath(otherHash,'figure-1-p1'));
+    assert.equal(x.manager.summary(paper).thumbnail.figureId,crop.thumbnail.figureId);
+    const restarted=new FigureManager({root:x.dir,state:x.dir,getPapers:()=>[paper,otherPaper],worker:x.worker});
+    assert.equal(restarted.overview().testScope.enabled,false);assert.equal(restarted.detail(otherPaper).status,'ready');assert.equal(restarted.controller,null);
+    assert.equal(await fs.readFile(path.join(x.manager.directory,'state.json'),'utf8'),before);
+    assert.deepEqual(loadJSON(x.manager.directory,'test-scope.json',{}),pilot,'historical file is preserved, not migrated destructively');
+    assert.equal(Object.keys(restarted.state.artifacts).length,2);assert.deepEqual(await fs.readFile(path.join(directory,'figure-1.webp')),webp);
+  }finally{await x.cleanup();}
+});
+
+test('local jobs process more than ten PDFs despite a legacy pilot file',async()=>{
+  const x=await fixture();try{
+    const papers=[],records=[];
+    for(let i=0;i<12;i++){
+      const p={...paper,id:'paper:'+i,title:`A Specific Motion Research Paper Number ${i}`,memberIds:[]},file=path.join(x.dir,`paper-${i}.pdf`);
+      await fs.writeFile(file,`%PDF-1.7\nsynthetic PDF ${i}`);papers.push(p);records.push({id:'pdf:'+i,title:p.title,path:file,source:'zotero',exists:true});
+    }
+    x.manager.getPapers=()=>papers;x.manager.worker=(root,script,args,options)=>script==='zotero-library.py'?Promise.resolve({records,available:12,total:12}):x.worker(root,script,args,options);
+    saveJSON(x.manager.directory,'test-scope.json',{enabled:true,pdfHashes:[],items:[]});
+    x.manager.start({mode:'local',limit:20});await x.manager.promise;
+    assert.equal(x.manager.job.stage,'complete',x.manager.job.error);assert.equal(x.manager.job.total,12);assert.equal(x.manager.job.completed,12);assert.equal(x.calls().extractionCalls,12);
+    assert.equal(papers.every(p=>x.manager.summary(p).status==='ready'),true);
   }finally{await x.cleanup();}
 });
 
@@ -110,9 +131,9 @@ test('explicit Zotero library jobs include unmatched PDFs, deduplicate content, 
     x.manager.worker=worker;x.manager.downloader=async()=>{downloadCalls++;throw new Error('Downloads forbidden in this fixture');};
     const protectedFiles={'reviews.json':{keep:{status:'confirmed',itemKey:'KEEP1234'}},'projects.json':{fixture:{category:'research'}},'bibliography-decisions.json':{fixture:{action:'separate'}}};
     for(const [file,value] of Object.entries(protectedFiles))saveJSON(x.dir,file,value);
-    saveJSON(x.manager.directory,'test-scope.json',{enabled:true,pdfHashes:[existing.hash],items:[]});x.manager.refresh();assert.equal(x.manager.testScope.enabled,true);
+    saveJSON(x.manager.directory,'test-scope.json',{enabled:true,pdfHashes:[existing.hash],items:[]});x.manager.refresh();assert.equal(x.manager.testScope.enabled,false);
     x.manager.start({mode:'zotero-all'});await x.manager.promise;
-    assert.equal(x.manager.testScope.enabled,false);assert.equal(x.manager.testScope.expandedBy,'zotero-all');
+    assert.equal(x.manager.testScope.enabled,false);
     assert.equal(x.manager.job.stage,'complete');assert.equal(x.manager.job.pdfCount,4);assert.equal(x.manager.job.total,3);assert.equal(x.manager.job.completed,3);
     assert.equal(x.manager.job.cached,1);assert.equal(x.manager.job.extracted,1);assert.equal(x.manager.job.duplicates,1);assert.equal(x.manager.job.errors,1);
     assert.equal(x.manager.overview().zotero.figureReady,3);assert.equal(x.manager.overview().zotero.failureCount,1);assert.equal(downloadCalls,0);

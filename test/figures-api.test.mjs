@@ -22,12 +22,14 @@ test('PDF/Figure APIs display cached images and preserve manual thumbnails, revi
   };for(const [file,value] of Object.entries(originals))await fs.writeFile(file,JSON.stringify(value));
   await fs.writeFile(path.join(media,'zotero.json'),JSON.stringify({records:[{id:'zotero:TEST1234',attachmentKey:'TEST1234',itemKey:'ITEM1234',source:'zotero',title,path:pdfFile,exists:true,hash}],available:1,total:1}));
   await fs.writeFile(path.join(media,'state.json'),JSON.stringify({artifacts:{[hash]:{version:FIGURE_SCHEMA_VERSION,pdfHash:hash,pages:2,pageSizes:[[600,800],[600,800]],figures,defaultFigureId:'figure-1-p1'}}}));
+  const legacyPilot=JSON.stringify({enabled:true,pdfHashes:[],items:[]});await fs.writeFile(path.join(media,'test-scope.json'),legacyPilot);
   const before=await Promise.all(Object.keys(originals).map(file=>fs.readFile(file,'utf8')));let child,url;
   async function start(){child=spawn(process.execPath,[path.join(root,'server.mjs')],{env:{...process.env,PORT:'0',RESEARCHSCAPE_DATA_DIR:data,RESEARCHSCAPE_STATE_DIR:state,RESEARCHSCAPE_FIGURE_PYTHON:path.join(temp,'not-needed-python')},stdio:['ignore','pipe','pipe']});let logs='';child.stderr.on('data',d=>logs+=d);url=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(logs)),10000);child.stdout.on('data',d=>{logs+=d;const m=/ready at (http:\/\/127\.0\.0\.1:\d+)/.exec(logs);if(m){clearTimeout(timer);resolve(m[1]);}});child.on('error',e=>{clearTimeout(timer);reject(e);});});}
   async function stop(){if(child&&child.exitCode===null){const done=once(child,'exit');child.kill();await done;}}
   const get=async route=>(await fetch(url+route)).json(),post=(route,d={})=>fetch(url+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
   try{
     await start();const overview=await get('/api/overview'),p=overview.papers[0];assert.equal(p.media.thumbnail.figureId,'figure-1-p1');assert.equal(p.status,'confirmed');assert.equal(p.pdfKey,'TEST1234');
+    assert.equal((await get('/api/media')).testScope.enabled,false);assert.equal((await get('/api/acquisition')).testMode,false);assert.equal((await get('/api/media')).job.running,false);
     const image=await fetch(url+p.media.thumbnail.url);assert.equal(image.status,200);assert.equal(image.headers.get('content-type'),'image/webp');assert.deepEqual(Buffer.from(await image.arrayBuffer()),webp);
     assert.equal((await fetch(url+'/api/media/image?pdf=../../private&figure=one')).status,404);
     const library=await get('/api/media/library');assert.equal(library.records.length,1);assert.ok(!JSON.stringify(library).includes(temp));
@@ -44,5 +46,6 @@ test('PDF/Figure APIs display cached images and preserve manual thumbnails, revi
     for(let n=0;n<50;n++){const d=await get('/api/media');if(!d.job.running){assert.equal(d.job.stage,'complete');assert.equal(d.job.total,0);break;}await new Promise(r=>setTimeout(r,20));}
     const after=await get('/api/paper?'+new URLSearchParams({id}));assert.equal(after.paper.count,1);assert.equal(after.paper.itemKey,'ITEM1234');assert.equal(after.paper.pdfKey,'TEST1234');assert.equal(after.paper.media.thumbnail.figureId,'figure-2-p2');
     for(const [i,file] of Object.keys(originals).entries())assert.equal(await fs.readFile(file,'utf8'),before[i]);
+    assert.equal(await fs.readFile(path.join(media,'test-scope.json'),'utf8'),legacyPilot);
   }finally{await stop();assert.ok(path.resolve(temp).startsWith(path.resolve(os.tmpdir())+path.sep));await fs.rm(temp,{recursive:true,force:true});}
 });

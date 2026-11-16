@@ -13,6 +13,12 @@ Node.js + Vanilla JavaScript + Python 구조를 그대로 사용합니다. Zoter
 
 Local API Key는 클래스의 private 필드에 메모리로만 보관합니다. 서버 응답·export·로그·일반 JSON 파일에는 포함하지 않습니다. OS 자격 증명 저장소 연동은 하지 않았으므로 서버 재시작 후에는 다시 승인해야 합니다. Zotero 자체에 저장한 승인은 Zotero 설정에서 취소할 수 있습니다.
 
+### 연결 오류와 설정
+
+`LOCAL_API_DISABLED` / “로컬 API가 꺼져 있습니다”는 현재 실행한 Zotero 프로필의 고급 설정에서 로컬 API 읽기를 허용해야 한다는 의미입니다. **설정 → 고급 → Allow other applications on this computer to communicate with Zotero**를 켜고 Researchscape의 **연결 확인**을 누르세요. 테스트 프로필에서 누른 Always Allow는 개인 프로필의 이 설정을 켜주지 않습니다.
+
+읽기 연결이 완료되면 프로젝트를 선택해 쓰기 없이 미리보기할 수 있습니다. 실제 저장에는 **쓰기 권한 요청**과 Zotero 창의 별도 승인이 필요합니다. “쓰기 승인 거절”과 “선택한 라이브러리 접근 권한 없음”은 읽기 설정 오류와 구분해 표시합니다. 연결 전 또는 프로젝트 미선택 상태에서는 미리보기를 막고, 쓰기 승인 전에는 최종 적용을 막습니다.
+
 ## Phase 1: 프로젝트 → Collection
 
 **Zotero 동기화**에서 프로젝트를 직접 선택하고 처음에는 **1~3편**으로 미리보기합니다. 생성·재사용할 Collection, 프로젝트별 추가 예정 항목, 이미 포함된 항목, 모호해서 건너뛴 논문을 확인한 뒤 **최종 승인·적용**을 누릅니다.
@@ -132,7 +138,7 @@ JSON Schema는 `GET /api/annotations/schema`로 확인합니다. 위 예시의 K
 | `annotation-exports/<exportId>.pdf` | 원본을 수정하지 않은 PDF 주석 사본 |
 | `annotation-jobs.json` | 로컬 작업 소유 프로세스·진행·중단 상태 |
 
-새 기능은 기존 `media/state.json`, Figure 캐시·썸네일 선택·수동 Crop, Export·Mention·프로젝트 매핑·서지 검토 파일을 갱신하지 않습니다. 10편 시험 모드의 PDF 해시 허용 목록도 그대로 적용하며 이 기능이 시험 범위를 해제하지 않습니다. 새 데이터를 되돌리려면 서버를 종료하고 이 새 파일/폴더만 별도 보관하세요. 기존 파일을 옮길 필요는 없습니다. Server ID가 바뀐 경우 기존 Collection·버전 매핑을 새 라이브러리에 재사용하지 않습니다.
+새 기능은 기존 `media/state.json`, Figure 캐시·썸네일 선택·수동 Crop, Export·Mention·프로젝트 매핑·서지 검토 파일을 갱신하지 않습니다. 10편 시험 제한은 폐지했으며 과거 `media/test-scope.json`은 수정 없이 기록으로만 보존합니다. 새 데이터를 되돌리려면 서버를 종료하고 이 새 파일/폴더만 별도 보관하세요. 기존 파일을 옮길 필요는 없습니다. Server ID가 바뀐 경우 기존 Collection·버전 매핑을 새 라이브러리에 재사용하지 않습니다.
 
 ## 검증 수준과 한계
 
@@ -140,10 +146,10 @@ JSON Schema는 `GET /api/annotations/schema`로 확인합니다. 위 예시의 K
 - 실제 PDF 도구: 합성 두 단 문서·회전 페이지·반복 문장·줄 끝 하이픈을 pypdfium2로 매핑하고, pypdf로 표준 Highlight 사본을 생성한 뒤 QuadPoints·기존 주석·원본 보존을 검증합니다. Unicode ligature 정규화는 별도 문자 역매핑 테스트로 확인합니다.
 - 실제 논문: 기존 10편 시험 대상 중 2편에서 텍스트 준비 → 선택 자료 JSON → 제안 import → 원문 좌표 매핑 → 로컬 승인 → 별도 PDF 생성까지 확인했습니다. 원본 PDF SHA-256과 기존 검토·Figure 상태 파일이 유지됐습니다. 테스트용 승인/사본은 분리된 검증 디렉터리에만 저장했으며, 실제 Zotero에는 쓰지 않았습니다.
 - 브라우저: 합성 2단 문서에서 JSON 붙여넣기, 인용 수정, 반복 위치 직접 선택, 승인, PDF 생성, 선택한 대화 범위만 export를 확인했습니다. 780px 화면에서 원문과 SVG 하이라이트가 정렬됐고, Tailscale 하위 경로에서도 새 UI를 불러옵니다.
-- 실제 Zotero 10: 설치된 10.0.8의 분리된 빈 프로필(별도 데이터 디렉터리·포트)에서 Local API v3 읽기, Server ID, 라이브러리/Collection 목록과 쓰기 없는 dry-run을 확인했습니다. **실제 쓰기 승인·Collection/노트 쓰기·외부 Highlight 인식/Import는 미검증**입니다. Windows 화면 입력이 접근 거부로 차단되어 화면 검증을 완료하지 못했습니다. Mock 성공을 실제 라이브러리 쓰기 성공으로 표현하지 않습니다.
+- 실제 Zotero 10: 설치된 10.0.8의 분리된 빈 프로필(별도 데이터 디렉터리·포트)에서 사용자 쓰기 승인을 받아 합성 논문 1편의 Collection 생성·멤버십 추가·재실행, 자식 노트 생성·재적용, PDF 자식 첨부 업로드를 확인했습니다. PDF 리더에서 외부 Highlight 2개의 원문·색상·코멘트가 인식됐으며, File → 주석 가져오기를 실행한 뒤 공식 읽기 API에서도 Highlight 2개와 기존 합성 메모 1개가 DB 주석으로 확인됐습니다. 사용자 개인 라이브러리에는 쓰지 않았습니다.
 
-이번 검증에서 `npm.cmd test`는 87개 통과(실패·건너뜀 0), `npm.cmd run check`는 JavaScript 42개와 Python 구문 검사를 통과했습니다. 기존 Figure·Crop·서지 검토 테스트를 포함합니다. PDF 사본은 PDFium으로 다시 렌더링해 하이라이트 위치와 기존 주석 보존을 시각적으로 확인했습니다.
+현재 `npm.cmd test`는 102개 통과(실패·건너뜀 0), `npm.cmd run check`는 JavaScript 46개와 Python 구문 검사를 통과했습니다. 기존 Figure·Crop·서지 검토 테스트를 포함합니다. PDF 사본은 PDFium과 실제 Zotero 리더에서 하이라이트 위치·코멘트·기존 주석 보존을 확인했습니다. 직접 Key를 지정하는 새 Collection·노트·항목에는 실환경의 생성 전제조건인 `version: 0`을 사용하며, HTTP 200 안의 객체별 실패도 오류로 보고합니다.
 
-실환경 후속 확인은 격리된 Zotero 라이브러리의 논문 1편으로 진행하세요. 권한 승인 후 Collection 추가·반복 동기화, 자식 노트 생성·재적용, 별도 PDF 첨부 후 Import Annotations 순서로 확인합니다. 원래 사용자 첨부파일을 교체하거나 테스트를 위해 기존 주석을 삭제하지 마세요. OCR, 복잡한 텍스트 회전, OS 자격 증명 저장소 연동 및 확인된 자동 Annotation 가져오기는 후속 개선 범위입니다.
+사용자 라이브러리의 첫 실행도 1~3편으로 미리보기한 뒤 적용하세요. 원래 사용자 첨부파일을 교체하거나 기존 주석을 삭제하지 마세요. Zotero의 Import Annotations는 주석을 사본 파일에서 자체 DB로 옮기므로 사본의 SHA-256이 바뀔 수 있습니다. 원래 PDF/Researchscape 사본은 별도로 보존하고, 변경된 파일에는 이전 해시의 승인을 재적용하지 않습니다. OCR, 복잡한 텍스트 회전, OS 자격 증명 저장소 연동 및 공식 지원이 검증된 자동 Annotation 가져오기는 후속 개선 범위입니다.
 
 공식 근거: [Zotero Local API](https://www.zotero.org/support/dev/web_api/v3/local_api), [Write Requests](https://www.zotero.org/support/dev/web_api/v3/write_requests), [PDF 외부 주석과 Import](https://www.zotero.org/support/kb/annotations_in_database), [격리된 프로필/인스턴스](https://www.zotero.org/support/kb/multiple_instances), [pypdfium2 좌표](https://pypdfium2.readthedocs.io/en/stable/python_api.html), [pypdf Highlight](https://pypdf.readthedocs.io/en/stable/user/adding-pdf-annotations.html).

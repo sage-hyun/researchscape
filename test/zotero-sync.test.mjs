@@ -13,7 +13,7 @@ function mockZotero(){
       const key=route.split('/').at(-1),entry=route.includes('/collections/')?state.collections.get(key):state.items.get(key);return response(entry||{},entry?200:404);
     }
     if(headers['Zotero-API-Key']!==state.key)return response({},401);state.writes.push({route,method,body:JSON.parse(options.body)});
-    if(route==='users/0/collections'){const data=JSON.parse(options.body)[0];state.collections.set(data.key,{key:data.key,version:1,data});return response({successful:{0:{key:data.key}}});}
+    if(route==='users/0/collections'){const data=JSON.parse(options.body)[0];if(data.key&&data.version!==0)return response({failed:{0:{code:428,message:state.failureMessage||'Key-based creates require version: 0'}}});state.collections.set(data.key,{key:data.key,version:1,data});return response({successful:{0:{key:data.key}}});}
     if(method==='PATCH'){
       const item=state.items.get(route.split('/').at(-1));if(state.conflict){state.conflict=false;item.version++;item.data.collections.push('RECENT01');return response({},412);}
       assert.equal(headers['If-Unmodified-Since-Version'],String(item.version));Object.assign(item.data,JSON.parse(options.body));item.version++;return response(null,204);
@@ -22,12 +22,25 @@ function mockZotero(){
 }
 const index=()=>({papers:[paper,{...paper,id:'missing',count:2,metadata:{title:'Another Specific Motion Estimation Research Paper',identifiers:[]}}],conversations:[{id:'a',projectId:'g-p-fixture-a'},{id:'b',projectId:'g-p-fixture-b'}],mentions:[{paperId:paper.id,conversationId:'a'},{paperId:paper.id,conversationId:'b'},{paperId:'missing',conversationId:'a'}],projects:[{id:'g-p-fixture-a',name:'Motion'},{id:'g-p-fixture-b',name:'IMU'}]});
 
+test('disabled Local API is distinct from a denied write grant or library permission',async()=>{
+  const client=new ZoteroClient({fetchFn:async()=>new Response('Local API is not enabled',{status:403,headers:{'Zotero-API-Version':'3'}})});
+  await assert.rejects(client.probe(),e=>e.code==='LOCAL_API_DISABLED'&&e.httpStatus===403&&e.message.includes('설정 → 고급'));
+  const libraryClient=new ZoteroClient({serverId:'fixture-server',fetchFn:async()=>new Response('Forbidden',{status:403})});
+  await assert.rejects(libraryClient.get('groups/1/items'),e=>e.code==='PERMISSION_DENIED'&&e.message.includes('라이브러리'));
+  const mock=mockZotero();mock.state.deny=true;await assert.rejects(mock.client.authorize(),e=>e.code==='PERMISSION_DENIED'&&e.message.includes('쓰기 승인'));
+});
+
 test('Zotero local credentials stay in memory; single use, denial, expiry and server changes are explicit',async()=>{
   const {state,client}=mockZotero();assert.equal((await client.probe()).serverId,state.serverId);state.deny=true;await assert.rejects(client.authorize(),e=>e.httpStatus===403);state.deny=false;state.remember=false;
-  const auth=await client.authorize();assert.ok(!JSON.stringify(auth).includes(state.key));await client.write('users/0/collections','POST',[{key:'FIRST001',name:'Fixture'}]);assert.equal(client.credentials().authorized,false);await assert.rejects(client.write('users/0/collections','POST',[]),e=>e.httpStatus===401);
+  const auth=await client.authorize();assert.ok(!JSON.stringify(auth).includes(state.key));await client.write('users/0/collections','POST',[{key:'FIRST001',version:0,name:'Fixture'}]);assert.equal(client.credentials().authorized,false);await assert.rejects(client.write('users/0/collections','POST',[]),e=>e.httpStatus===401);
   state.remember=true;await client.authorize();state.serverId='different-server';assert.equal((await client.probe()).serverChanged,true);assert.equal(client.credentials().authorized,false);
   await client.authorize();state.key='J'.repeat(32);await assert.rejects(client.write('users/0/collections','POST',[]),e=>e.httpStatus===401);assert.equal(client.credentials().authorized,false);
   assert.throws(()=>new ZoteroClient({base:'https://outside.example/api/'}));
+});
+
+test('HTTP 200 per-object failures retain their status and never echo the memory key',async()=>{
+  const {state,client}=mockZotero();state.failureMessage='Key-based creates require version: 0; fixture credential='+state.key;for(const remember of [true,false]){state.remember=remember;await client.authorize();await assert.rejects(client.write('users/0/collections','POST',[{key:'MISSING0',name:'Missing version'}]),e=>e.code==='WRITE_FAILED'&&e.httpStatus===428&&e.message.includes('version: 0')&&e.message.includes('[redacted]')&&!e.message.includes(state.key));}
+  assert.equal(state.collections.size,0);
 });
 test('project dry-run, additive collections, multiple projects, 412 retries and repeat sync preserve manual collections',async()=>{
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'rs-sync-'));try{

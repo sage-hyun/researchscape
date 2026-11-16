@@ -16,6 +16,7 @@ import {publicRoutes,requestAccess} from './lib/request-access.mjs';
 import {compactReviewExport,reviewGroups,reviewSnapshot,reviewResultSchema,planReviewImport,applyReviewPlan} from './lib/bibliography-review.mjs';
 import {createZoteroAPI} from './lib/zotero-api.mjs';
 import {createAnnotationAPI} from './lib/annotation-api.mjs';
+import {createAcquisitionAPI} from './lib/acquisition-api.mjs';
 
 const ROOT=path.dirname(fileURLToPath(import.meta.url));
 const {data:DATA,state:LOCAL}=storagePaths(ROOT);
@@ -135,16 +136,18 @@ const researchContexts=async paper=>{
 };
 const zoteroAPI=createZoteroAPI({state:LOCAL,media,getIndex:researchIndex,json,body});
 const annotationAPI=createAnnotationAPI({root:ROOT,state:LOCAL,media,getPaper:researchPaper,getContexts:researchContexts,client:zoteroAPI.client,json,body,asset:localAsset});
-const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js','zotero.js','annotations.js']);
+const acquisitionAPI=createAcquisitionAPI({state:LOCAL,media,client:zoteroAPI.client,getIndex:researchIndex,getPaper:researchPaper,json,body});
+const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js','zotero.js','annotations.js','acquisition.js']);
 const server=http.createServer(async(req,res)=>{
   try {
     const url=new URL(req.url,'http://127.0.0.1');
     const access=requestAccess(req,routes);
     if(access.status)return json(res,access.status,{error:access.error});
-    const pdfUpload=req.method==='POST'&&url.pathname==='/api/media/upload';
+    const pdfUpload=req.method==='POST'&&['/api/media/upload','/api/acquisition/upload'].includes(url.pathname);
     if(req.method!=='GET' && !String(req.headers['content-type']).startsWith(pdfUpload?'application/pdf':'application/json'))return json(res,415,{error:pdfUpload?'PDF required':'JSON required'});
     if(url.pathname.startsWith('/api/zotero/')){refreshBibliography();media.refresh();return zoteroAPI.handle(req,res,url);}
     if(url.pathname.startsWith('/api/annotations/')){refreshBibliography();media.refresh();return annotationAPI.handle(req,res,url);}
+    if(url.pathname.startsWith('/api/acquisition')){refreshBibliography();media.refresh();return acquisitionAPI.handle(req,res,url);}
     if(url.pathname.startsWith('/api/media')){
       refreshBibliography();media.refresh();
       const getMediaPaper=id=>{const p=enriched(index.papers,false).find(p=>p.id===resolvePaperId(id));if(!p)throw new Error('논문 후보를 찾지 못했습니다.');return p;};

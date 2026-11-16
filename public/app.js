@@ -35,7 +35,7 @@ let toastTimer;
 function toast(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
 async function api(url,options={}) {
   const res=await fetch(appUrl(url),{...options,headers:options.body?{'Content-Type':'application/json'}:undefined});
-  const data=await res.json();if(!res.ok)throw new Error(data.error||'요청에 실패했습니다.');return data;
+  const data=await res.json();if(!res.ok){const error=new Error(data.error||'요청에 실패했습니다.');error.code=data.code;error.status=res.status;throw error;}return data;
 }
 const post=(url,data={})=>api(url,{method:'POST',body:JSON.stringify(data)});
 async function load(range=state.range){

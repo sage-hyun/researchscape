@@ -10,3 +10,80 @@
 .bib-export-controls,.bib-import{margin:18px 0;padding:14px;border:1px solid var(--line);border-radius:6px;background:#fafbf6}.bib-export-controls h3{margin-top:0;font-size:13px}.bib-export-controls p,.bib-import p,#bibAliasDiagnostics p,#bibWorkVersions p{font-size:11px;line-height:1.7;color:var(--muted)}.bib-actions label{display:flex;align-items:center;gap:7px}.bib-actions input[type=number]{width:65px;padding:8px;border:1px solid var(--line);background:white;border-radius:4px}.bib-import textarea{display:block;width:100%;margin:9px 0;padding:10px;font-family:Consolas,monospace;font-size:11px;border:1px solid var(--line);border-radius:4px;resize:vertical}.bib-import .bib-review small{overflow-wrap:anywhere}#bibAliasDiagnostics,#bibWorkVersions{margin:12px 0;font-size:11px}#bibReviewPreview{margin:12px 0}
 
 .paper-media-tabs{display:flex;gap:8px;margin-top:22px}.paper-media-tabs [aria-selected=true]{background:var(--green);color:white}.annotation-panel{margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:6px;font-size:12px;line-height:1.7}.annotation-panel pre,#zoteroPreviewResult pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;background:#f7f8f3;padding:10px;font-size:11px}.annotation-input{margin:16px 0;padding:12px;border:1px solid var(--line);border-radius:5px}.annotation-panel textarea{width:100%;display:block;box-sizing:border-box;border:1px solid var(--line);padding:8px;font:12px Consolas,monospace;margin:8px 0}.annotation-panel input[type=number]{width:75px}.annotation-panel select,.annotation-panel input{padding:6px;border:1px solid var(--line);border-radius:3px}.annotation-panel details{margin:8px 0}.annotation-page{position:relative;touch-action:none;user-select:none;margin:14px 0;background:#f3f4ee}.annotation-page img{display:block;width:100%;height:auto}.annotation-page svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}.annotation-card{border:1px solid var(--line);border-left:4px solid #7c986c;border-radius:4px;padding:12px;margin:14px 0}.annotation-card.research-context{border-left-color:#8974b4;background:#f8f6fb}.annotation-card.is-excluded{opacity:.55}.annotation-card blockquote{margin:10px 0;padding:8px 12px;background:#f6f7f0;border-left:2px solid #b5c6a5}.zotero-projects{display:grid;gap:8px;padding:12px 0;max-height:260px;overflow:auto}.zotero-projects small{color:var(--muted)}#zoteroDialog{width:900px}#zoteroStatus,#annMessage{white-space:pre-wrap;color:#566b4a}#annContexts article{border-bottom:1px solid var(--line);padding:12px 0}
+
+/* Assisted PDF acquisition */
+#acquisitionDialog{width:min(680px,92vw)} #acqDialogBody p{overflow-wrap:anywhere} #acqDialogBody label{display:block;margin:12px 0} #acqDialogBody select{max-width:100%} .acquisition-paper-actions{margin-bottom:14px}
+#pdfAcquisitionDialog{width:min(1120px,calc(100vw - 40px));padding:28px;overflow-x:hidden;font-size:14px;line-height:1.65}
+#pdfAcquisitionDialog h2{font-size:25px;margin:6px 0 10px}
+#pdfAcquisitionDialog p{font-size:14px;color:#66735f;line-height:1.75;margin:10px 0;overflow-wrap:anywhere}
+#pdfAcquisitionDialog .acquisition-intro{margin:0 0 18px}
+.acquisition-guide{padding:12px 16px;background:#f2f5ec;border:1px solid var(--line);border-radius:7px;font-size:13px;color:#53644a}
+#pdfAcquisitionDialog summary{cursor:pointer;font-weight:500}
+.acquisition-guide ol{padding-left:22px;margin:10px 0 0}
+.acquisition-filters{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1.2fr) minmax(120px,.7fr) auto;gap:16px;align-items:end;padding:22px 0 18px}
+#pdfAcquisitionDialog label{display:flex;flex-direction:column;gap:7px;min-width:0;margin:0;font-size:13px;color:#57694c}
+#pdfAcquisitionDialog select{width:100%;min-width:0;max-width:100%;height:42px;padding:0 12px;font:inherit;font-size:14px;border:1px solid #ced6c4;border-radius:6px;background:white;color:var(--ink)}
+#pdfAcquisitionDialog .acquisition-checkbox{flex-direction:row;align-items:center;gap:9px;min-height:42px;white-space:nowrap}
+.acquisition-toolbar{display:flex;gap:10px;align-items:end;flex-wrap:wrap;padding:16px;background:#f5f7ef;border:1px solid var(--line);border-radius:8px}
+.acquisition-toolbar>label{flex:0 0 145px}
+#pdfAcquisitionDialog .button,#acquisitionDialog .button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:9px 14px;font-size:13px;line-height:1.5;margin:0;border-radius:6px;box-sizing:border-box;white-space:normal;text-align:center}
+#pdfAcquisitionDialog .primary{width:auto}
+#pdfAcquisitionDialog button:disabled{cursor:not-allowed}
+#pdfAcquisitionDialog input[type=file]{margin:0;padding:0}
+#acqMessage{min-height:24px;padding:4px 0}
+#acqTotals{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin:14px 0 24px}
+#acqTotals>span{font-size:12px;line-height:1.5;padding:12px 14px;border:1px solid var(--line);border-radius:7px;background:#fafbf7;color:#627356}
+#acqTotals strong{display:block;font-size:23px;font-weight:500;color:#365d49;margin-top:6px}
+#acqTotals small{font-size:12px;font-weight:400;margin-left:5px}
+.acquisition-card{padding:20px;border:1px solid #d9dfd1;border-radius:9px;background:white;margin:14px 0}
+.acquisition-card-heading{display:flex;align-items:start;justify-content:space-between;gap:16px}
+.acquisition-card-heading>strong{font-size:17px;font-weight:600;line-height:1.6;overflow-wrap:anywhere;min-width:0}
+.acquisition-badge{font-size:12px;padding:5px 10px;border-radius:20px;background:#f1f4eb;color:#5b6e50;flex-shrink:0}
+.acquisition-badge[data-status=needs_browser],.acquisition-badge[data-status=needs_identity_review]{background:#fff3df;color:#8a622e}
+.acquisition-badge[data-status=available_in_zotero]{background:#e7f1e7;color:#365d49}
+#pdfAcquisitionDialog .acquisition-count{font-size:13px;color:#718065;margin:7px 0 12px}
+.acquisition-card details{margin:12px 0;font-size:13px;color:#596d4d;overflow-wrap:anywhere}
+.acquisition-card details[open]{padding:12px;background:#f7f9f3;border-radius:6px}
+.acquisition-card .media-actions{gap:9px;margin:18px 0 0;align-items:stretch}
+#pdfAcquisitionDialog .media-file-label{flex-direction:row;gap:0;color:var(--ink);cursor:pointer}
+.acquisition-pagination{display:flex;justify-content:center;align-items:center;gap:18px;margin:24px 0 0;font-size:13px}
+#acquisitionDialog p{font-size:13px;color:#66735f}
+#acquisitionDialog .media-file-label{margin:0}
+#mediaDialog .media-actions .button,#mediaDialog select{font-size:13px;min-height:40px}
+#mediaDialog .media-queue-item>strong{font-size:15px}
+#mediaDialog .media-queue-item>small,#mediaJobStatus span,#mediaJobStatus small{font-size:12px}
+@media(max-width:850px){.acquisition-filters{grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-card-heading{flex-direction:column;gap:8px}.acquisition-badge{flex-shrink:1}.acquisition-toolbar .primary{flex:1}}
+@media(max-width:600px){#pdfAcquisitionDialog{width:calc(100vw - 16px);padding:18px;max-height:94vh}#pdfAcquisitionDialog h2{font-size:22px}.acquisition-filters{gap:14px 10px}.acquisition-toolbar{padding:12px;align-items:stretch}.acquisition-toolbar>label{flex-basis:100%}.acquisition-toolbar .button{flex:1 1 130px}.acquisition-card{padding:15px}.acquisition-card .media-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-card-heading>strong{font-size:16px}#acqTotals{grid-template-columns:repeat(2,minmax(0,1fr))}.acquisition-pagination{gap:8px}.acquisition-pagination .button{padding:8px}}
+/* Dialog controls keep native checkbox sizing; text fields remain full width. */
+dialog input[type=checkbox],dialog input[type=radio]{display:inline-block;width:16px;height:16px;min-width:16px;max-width:16px;padding:0;margin:0;vertical-align:middle;accent-color:var(--green)}
+#zoteroDialog{width:min(900px,calc(100vw - 32px));padding:26px;overflow-x:hidden}
+#zoteroDialog p{font-size:12px;color:#6f7c67;line-height:1.75}
+#zoteroDialog .dialog-heading h2{margin:6px 0 10px}
+#zoteroDialog button:disabled{cursor:not-allowed}
+.zotero-section{border-top:1px solid var(--line);padding-top:18px;margin-top:18px;min-width:0}
+.zotero-section h3{font-size:14px;font-weight:600;margin:0 0 12px}
+.zotero-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.zotero-section-heading h3{margin:0}
+#zoteroSelectionCount{font-size:12px;color:var(--muted)}
+.zotero-status-badge{font-size:11px;padding:5px 9px;border:1px solid #dbe1d1;border-radius:20px;background:#f3f5ed;color:#69795b;white-space:nowrap}
+.zotero-status-badge[data-state=connected]{background:#e7efe1;color:#365d49}
+.zotero-connection-actions,.zotero-selection-actions{gap:9px;margin:12px 0}
+#zoteroDialog .media-actions .button{font-size:12px;padding:9px 12px}
+.zotero-connection-actions label,.zotero-selection-actions label{display:flex;align-items:center;gap:8px;margin:0;font-size:12px;color:#69795b;min-width:0}
+.zotero-selection-actions label{margin-left:auto}
+#zoteroDialog select{max-width:260px;font-size:12px;padding:8px;border:1px solid var(--line);border-radius:4px;background:white;color:var(--ink)}
+#zoteroStatus{margin:12px 0;overflow-wrap:anywhere}
+#zoteroStatus[data-state=error]{color:#92513c;background:#fbf3ec;border-left:3px solid #c48a6b;padding:10px 12px;border-radius:3px}
+.zotero-setup{background:#f5f7ef;padding:11px 14px;border:1px solid var(--line);border-radius:5px;font-size:12px;line-height:1.8}
+.zotero-setup summary{cursor:pointer;color:#52674a;font-weight:600}
+.zotero-setup ol{margin:10px 0;padding-left:22px;overflow-wrap:anywhere}
+#zoteroDialog .zotero-projects{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:minmax(44px,auto);gap:5px;max-height:288px;padding:5px;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;border:1px solid var(--line);border-radius:5px;background:#fafbf7}
+#zoteroDialog .zotero-project-option{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;min-width:0;margin:0;padding:10px;border:1px solid transparent;border-radius:4px;background:white;font-size:12px;line-height:1.6;color:var(--ink);cursor:pointer}
+.zotero-project-option:hover,.zotero-project-option:focus-within{border-color:#c3d1b5!important;background:#f0f5e9!important}
+.zotero-project-name{min-width:0;overflow-wrap:anywhere}
+.zotero-project-option small{white-space:nowrap;font-size:11px}
+#zoteroPreviewResult{font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+#zoteroPreviewResult h4{margin:16px 0 8px}
+#zoteroPreviewResult ul{padding-left:22px}
+#zoteroApply{margin-top:14px;min-height:40px}
+@media(max-width:600px){#zoteroDialog{padding:18px;width:calc(100vw - 20px)}#zoteroDialog h2{font-size:19px}.zotero-section-heading{align-items:flex-start}.zotero-connection-actions label{flex-basis:100%}.zotero-selection-actions label{margin-left:0}.zotero-project-option small{font-size:10px}#zoteroDialog .zotero-project-option{gap:7px;padding:8px;font-size:11px}.zotero-status-badge{font-size:10px}}
