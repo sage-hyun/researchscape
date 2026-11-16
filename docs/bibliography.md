@@ -65,4 +65,4 @@ JSON에는 후보 제목·식별자 키·제공자별 상태만 포함하며 대
 
 공식 API 참고: [OpenAlex 제목 검색](https://help.openalex.org/api/searching/), [Semantic Scholar Graph API](https://api.semanticscholar.org/api-docs/graphs).
 
-검토 JSON은 이제 전체 진단과 30~50건 compact 형식을 분리합니다. 같은 대화만의 약칭 병합을 제한하고 Work·Version 관계를 별도 제안합니다. 입력 스키마·dry-run·최종 승인 흐름은 [검토 JSON과 가져오기](bibliography-review.md)를 참고하세요.
+LLM 검토는 미연결 후보 전체를 파일 하나로 내려받고 결과도 한 번에 가져옵니다. 전체 진단과 30~50건 compact 형식은 고급 설정과 API로 유지합니다. LLM이 제안한 DOI·arXiv ID로 조회한 레코드는 사람이 승인하거나 일반 조회가 같은 레코드를 반환하기 전까지 자동 연결 근거로 쓰지 않고 연결 후보로만 둡니다. 같은 대화만의 약칭 병합을 제한하고 Work·Version 관계를 별도 제안합니다. 결과 스키마·미리보기·최종 승인 흐름은 [검토 JSON과 가져오기](bibliography-review.md)를 참고하세요.

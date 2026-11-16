@@ -39,6 +39,7 @@ researchscape/                       Git 저장소
 | 수동 입력·판단 | `sources.json`, `reviews.json`, `projects.json`, `conversation-labels.json`, `bibliography-decisions.json` | 반드시 별도 백업 |
 | 서지 결과 | `bibliography.json` | 백업 권장. API로 다시 얻을 수 있지만 재조회가 필요 |
 | 파생 데이터 | `index.json`, `bibliography-job.json` | 재구축 가능 |
+| LLM 검토 작업 | `review-imports/`, `review-exports/` | 진행 중인 가져오기를 이어가려면 보관. 승인한 결정은 `bibliography-decisions.json`에 있으므로 지워도 결정은 남음 |
 | 실행 흔적 | 로그, PID, QA 브라우저 프로필, 스크린샷 | Git 제외 |
 
 저장 잠금으로 생성된 `*.v-*.json` 스냅샷이 있다면 기본 파일과 함께 보관해야 최신 결정이 남습니다. 간단하게는 개인 state 폴더 전체를 백업하는 편이 안전합니다. Git이나 `.gitignore`는 이 백업을 대신하지 않습니다.

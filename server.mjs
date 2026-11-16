@@ -13,7 +13,9 @@ import {saveJSON,loadJSON,storeVersion} from './lib/local-store.mjs';
 import {storagePaths} from './lib/config.mjs';
 import {FigureManager} from './lib/figure-manager.mjs';
 import {publicRoutes,requestAccess} from './lib/request-access.mjs';
-import {compactReviewExport,reviewGroups,reviewSnapshot,reviewResultSchema,planReviewImport,applyReviewPlan} from './lib/bibliography-review.mjs';
+import {compactReviewExport,reviewBundleExport,reviewGroups,reviewSnapshot,reviewResultSchema,planReviewImport,applyReviewPlan} from './lib/bibliography-review.mjs';
+import {ReviewImportManager} from './lib/review-import.mjs';
+import {createReviewAPI} from './lib/review-api.mjs';
 import {createZoteroAPI} from './lib/zotero-api.mjs';
 import {createAnnotationAPI} from './lib/annotation-api.mjs';
 import {createAcquisitionAPI} from './lib/acquisition-api.mjs';
@@ -137,6 +139,19 @@ const researchContexts=async paper=>{
 const zoteroAPI=createZoteroAPI({state:LOCAL,media,getIndex:researchIndex,json,body});
 const annotationAPI=createAnnotationAPI({root:ROOT,state:LOCAL,media,getPaper:researchPaper,getContexts:researchContexts,client:zoteroAPI.client,json,body,asset:localAsset});
 const acquisitionAPI=createAcquisitionAPI({state:LOCAL,media,client:zoteroAPI.client,getIndex:researchIndex,getPaper:researchPaper,json,body});
+// A sync in this or another server process owns the lookup cache while it runs.
+const syncRunning=()=>{
+  if(bibliographyController)return true;
+  const job=load('bibliography-job.json',{});if(!job.running||!job.ownerPid||job.ownerPid===process.pid)return false;
+  try{process.kill(job.ownerPid,0);return true;}catch{return false;}
+};
+const reviewImports=new ReviewImportManager({
+  state:LOCAL,syncRunning,refresh:applyBibliography,
+  context:()=>{refreshBibliography();return {raw:rawIndex,store:bibliography,resolved:index,decisions:bibDecisions};},
+  saveStore:value=>{bibliography=value;save('bibliography.json',value);},
+  saveDecisions:value=>{save('bibliography-decisions.json',value);bibDecisions=value;}
+});
+const reviewAPI=createReviewAPI({manager:reviewImports,json,body});
 const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js','zotero.js','annotations.js','acquisition.js']);
 const server=http.createServer(async(req,res)=>{
   try {
@@ -148,6 +163,7 @@ const server=http.createServer(async(req,res)=>{
     if(url.pathname.startsWith('/api/zotero/')){refreshBibliography();media.refresh();return zoteroAPI.handle(req,res,url);}
     if(url.pathname.startsWith('/api/annotations/')){refreshBibliography();media.refresh();return annotationAPI.handle(req,res,url);}
     if(url.pathname.startsWith('/api/acquisition')){refreshBibliography();media.refresh();return acquisitionAPI.handle(req,res,url);}
+    if(url.pathname===reviewAPI.prefix||url.pathname.startsWith(reviewAPI.prefix+'/'))return reviewAPI.handle(req,res,url);
     if(url.pathname.startsWith('/api/media')){
       refreshBibliography();media.refresh();
       const getMediaPaper=id=>{const p=enriched(index.papers,false).find(p=>p.id===resolvePaperId(id));if(!p)throw new Error('논문 후보를 찾지 못했습니다.');return p;};
@@ -207,18 +223,24 @@ const server=http.createServer(async(req,res)=>{
       const diagnostics=bibliographyDiagnostics(rawIndex,bibliography,index);
       const lookupErrors=Object.entries(diagnostics.lookupSummary).filter(([kind])=>!['retrieved','no-match','identifier-not-indexed'].includes(kind)).reduce((sum,[,n])=>sum+n,0);
       const groups=reviewGroups(rawIndex,index,bibDecisions);
-      return json(res,200,{job,recordCount:Object.keys(bibliography.records||{}).length,stats:index.stats,queue:index.resolutionQueue,lookupErrors,diagnostics,reviewTotals:{withCandidates:groups.withCandidates.length,withoutCandidates:groups.withoutCandidates.length}});
+      return json(res,200,{job,recordCount:Object.keys(bibliography.records||{}).length,stats:index.stats,queue:index.resolutionQueue,lookupErrors,diagnostics,reviewTotals:{withCandidates:groups.withCandidates.length,withoutCandidates:groups.withoutCandidates.length},reviewImport:reviewImports.latest()});
     }
     if(req.method==='GET'&&url.pathname==='/api/bibliography/export'){
       refreshBibliography();
-      const format=url.searchParams.get('format')||'full';if(!['compact','full'].includes(format))throw new Error('compact 또는 full 형식을 선택해주세요.');
-      let exported;
-      if(format==='compact')exported=compactReviewExport(rawIndex,index,bibDecisions,Object.fromEntries(url.searchParams));
-      else {
+      const format=url.searchParams.get('format')||'full';if(!['bundle','compact','full'].includes(format))throw new Error('bundle, compact 또는 full 형식을 선택해주세요.');
+      let exported,filename='diagnostics';
+      if(format!=='full'){
+        // bundle: the whole review in one file. compact: the earlier page-by-page export, kept for compatibility.
+        const groups=reviewGroups(rawIndex,index,bibDecisions);
+        exported=format==='bundle'?reviewBundleExport(rawIndex,index,bibDecisions,{batchSize:url.searchParams.get('batchSize')},groups):compactReviewExport(rawIndex,index,bibDecisions,Object.fromEntries(url.searchParams),groups);
+        // Remember what this snapshot showed, so results that arrive later are compared per candidate.
+        reviewImports.recordExport(groups,exported.generatedAt);
+        filename=format==='bundle'?'llm-review-'+exported.snapshot.slice(0,8):'llm-review';
+      }else {
         const queued=new Set(index.resolutionQueue.map(q=>q.id)),groups=reviewGroups(rawIndex,index,bibDecisions),wanted=new Set(groups.withoutCandidates.map(p=>p.candidateId));
-        exported={schemaVersion:2,kind:'diagnostics',queue:index.resolutionQueue,unresolved:rawIndex.papers.filter(p=>wanted.has(p.id)&&!queued.has(p.id)).map(p=>({id:p.id,title:p.title,observedTitles:[...new Set([p.title,...(p.aliases||[])])].map(text=>({text,sourceId:p.id})),identifiers:p.identifiers,count:p.count})),reviewTotals:{withCandidates:groups.withCandidates.length,withoutCandidates:groups.withoutCandidates.length},diagnostics:bibliographyDiagnostics(rawIndex,bibliography,index),records:bibliography.records,lookups:bibliography.lookups,providerLookups:bibliography.providerLookups||{}};
+        exported={schemaVersion:2,kind:'diagnostics',queue:index.resolutionQueue,unresolved:rawIndex.papers.filter(p=>wanted.has(p.id)&&!queued.has(p.id)).map(p=>({id:p.id,title:p.title,observedTitles:[...new Set([p.title,...(p.aliases||[])])].map(text=>({text,sourceId:p.id})),identifiers:p.identifiers,count:p.count})),reviewTotals:{withCandidates:groups.withCandidates.length,withoutCandidates:groups.withoutCandidates.length},diagnostics:bibliographyDiagnostics(rawIndex,bibliography,index),records:bibliography.records,lookups:bibliography.lookups,providerLookups:bibliography.providerLookups||{},proposedLinks:bibliography.proposedLinks||{}};
       }
-      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="researchscape-${format==='compact'?'llm-review':'diagnostics'}.json"`,'Cache-Control':'no-store'});
+      res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="researchscape-${filename}.json"`,'Cache-Control':'no-store'});
       return res.end(JSON.stringify(exported));
     }
     if(req.method==='GET'&&url.pathname==='/api/bibliography/review-schema')return json(res,200,reviewResultSchema);
@@ -242,6 +264,7 @@ const server=http.createServer(async(req,res)=>{
       if(!Number.isInteger(limit)||limit<1||limit>300)throw new Error('제목 조회 수는 1~300개로 지정해주세요.');
       const existing=load('bibliography-job.json',{});
       if(existing.running&&existing.ownerPid){try{process.kill(existing.ownerPid,0);return json(res,409,{error:'이미 서지정보를 조회하고 있습니다.'});}catch{}}
+      if(reviewImports.verifying)return json(res,409,{error:'LLM 검토 결과의 제안 식별자를 조회하고 있습니다. 검증이 끝난 뒤 다시 시도해주세요.'});
       bibliographyJob={running:true,ownerPid:process.pid,startedAt:new Date().toISOString(),completed:0,total:0,stage:'starting'};save('bibliography-job.json',bibliographyJob);
       bibliographyController=new AbortController();
       json(res,202,{ok:true});
