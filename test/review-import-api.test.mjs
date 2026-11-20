@@ -51,16 +51,16 @@ test('one download, one import of 1,100+ decisions above 2MB, restart, approval 
       return new Response(JSON.stringify(work?{message:work}:{}),{status:work?200:404,headers:{'Content-Type':'application/json'}});
     };
   `);
-  let child,url;
+  let child,url,serverLogs='';
   async function start(){
     child=spawn(process.execPath,['--import',pathToFileURL(preload).href,path.join(root,'server.mjs')],{env:{...process.env,PORT:'0',RESEARCHSCAPE_DATA_DIR:data,RESEARCHSCAPE_STATE_DIR:state,RESEARCHSCAPE_PROVIDER_FIXTURE:temp,RESEARCHSCAPE_FIGURE_PYTHON:path.join(temp,'not-needed-python'),OPENALEX_API_KEY:'',SEMANTIC_SCHOLAR_API_KEY:''},stdio:['ignore','pipe','pipe']});
-    let logs='';child.stderr.on('data',d=>logs+=d);
+    let logs='';serverLogs='';child.stderr.on('data',d=>{logs+=d;serverLogs+=d;});
     url=await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(logs||'Server did not start')),20000);child.stdout.on('data',d=>{logs+=d;const match=/ready at (http:\/\/127\.0\.0\.1:\d+)/.exec(logs);if(match){clearTimeout(timer);resolve(match[1]);}});child.on('error',e=>{clearTimeout(timer);reject(e);});child.once('exit',()=>{clearTimeout(timer);reject(new Error(logs||'Server exited before startup'));});});
   }
   async function stop(){if(child&&child.exitCode===null){const done=once(child,'exit');child.kill();await done;}}
   const route='/api/bibliography/review/import';
-  const get=async path=>(await fetch(url+path)).json();
-  const send=(path,body,headers={})=>fetch(url+path,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:typeof body==='string'?body:JSON.stringify(body)});
+  const get=async path=>{try{return await(await fetch(url+path)).json();}catch(e){throw new Error(`${path}: ${e.message}; server exit ${child.exitCode}; ${serverLogs}`,{cause:e});}};
+  const send=async(path,body,headers={})=>{try{return await fetch(url+path,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:typeof body==='string'?body:JSON.stringify(body)});}catch(e){throw new Error(`${path}: ${e.message}; server exit ${child.exitCode}; ${serverLogs}`,{cause:e});}};
   const post=async(path,body)=>{const response=await send(path,body);return {status:response.status,...await response.json()};};
   const view=(id,params={})=>get(route+'?'+new URLSearchParams({id,...params}));
   const until=async predicate=>{const end=Date.now()+30000;while(Date.now()<end){const value=await predicate();if(value)return value;await new Promise(resolve=>setTimeout(resolve,25));}throw new Error('Fixture condition timed out');};
@@ -147,7 +147,7 @@ test('one download, one import of 1,100+ decisions above 2MB, restart, approval 
     assert.equal((await send(route+'/apply',{importId:id,approved:true,candidateIds:done.readyIds},{Origin:'https://outside.example'})).status,403);
     assert.equal((await post(route+'/apply',{importId:'00000000-0000-4000-8000-000000000000',approved:true,candidateIds:['x']})).status,404);
     assert.deepEqual(await post(route+'/apply',{importId:id,approved:true,candidateIds:done.readyIds}),{status:200,ok:true,applied:840,skipped:[],remaining:0});
-    const finished=await view(id);assert.equal(finished.status,'completed');assert.equal(finished.counts.applied,840);assert.equal((await get('/api/bibliography')).reviewImport,null);
+    const finished=await view(id);assert.equal(finished.status,'completed');assert.equal(finished.counts.applied,840);assert.equal((await get('/api/bibliography')).reviewImport.id,id,'unresolved manual rows remain available in the unified workspace');
 
     // ---- what a person or Zotero recorded is exactly as before ----
     const stored=JSON.parse(await fs.readFile(path.join(state,'bibliography-decisions.json'),'utf8'));

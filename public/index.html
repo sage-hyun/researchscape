@@ -34,22 +34,26 @@
   <p class="bib-privacy">DOI·arXiv·OpenReview 식별자를 조회하고, 정식 제목은 Crossref → OpenAlex → Semantic Scholar 순으로 보완합니다. 검증된 약칭은 사전의 식별자와 대조합니다. 대화 원문·프로젝트명은 보내지 않으며 성공한 조회 결과는 캐시합니다. LLM은 자동 호출하지 않습니다.</p>
   <div id="bibStatus" role="status"></div><div id="bibStats"></div>
   <section class="bib-llm" aria-labelledby="bibLlmTitle">
-    <h3 id="bibLlmTitle">LLM 서지 검토</h3>
+    <h3 id="bibLlmTitle">서지 검토</h3>
     <p>아직 연결되지 않은 후보 전체를 파일 하나로 내려받아 LLM에 맡기고, 결과 JSON도 한 번에 가져옵니다. 파일에는 대화 본문·프로젝트명·Zotero Key를 넣지 않으며 LLM은 자동 호출하지 않습니다.</p>
     <div class="bib-actions"><a class="button primary" id="bibBundleDownload" href="/api/bibliography/export?format=bundle" download>전체 LLM 검토 JSON 다운로드</a><button class="button" id="bibReviewPick" type="button">LLM 검토 결과 JSON 가져오기</button><input type="file" id="bibReviewFile" accept=".json,application/json" multiple hidden aria-label="LLM 검토 결과 JSON 파일"></div>
     <p id="bibBundleInfo"></p>
     <div id="bibImportStatus" role="status" aria-live="polite" hidden></div>
-    <h4 id="bibPreviewTitle">검토 결과 미리보기</h4>
+    <h4 id="bibPreviewTitle">통합 검토 목록 · 검토 결과 미리보기</h4>
+    <p>공식 조회 후보와 LLM 결과를 한곳에서 검토합니다. 체크한 항목만 적용하며, 공식 레코드가 있어도 약칭과의 연결은 직접 확인해주세요.</p>
+    <div class="bib-workspace-filters"><label>검토 상태<select id="bibQueueStatus" aria-describedby="bibQueueHelp"><option value="pending">검토할 항목</option><option value="completed">처리 완료</option><option value="error">오류</option><option value="all">전체</option></select></label><label>LLM 근거<select id="bibQueueEvidence"><option value="">모든 근거</option><option value="external-identifier">external-identifier · 외부 식별자</option><option value="insufficient-evidence">insufficient-evidence · 근거 부족</option></select></label><label>후보·공식 제목 검색<input id="bibQueueSearch" type="search" placeholder="제목 또는 candidateId"></label></div>
+    <p id="bibQueueHelp">아직 연결·후보 제외·별도 유지 결정을 저장하지 않은 항목입니다.</p><p id="bibQueueSummary" role="status"></p><div id="bibReviewNotices"></div>
+    <div class="bib-workspace-actions"><button class="text-button" id="bibSelectFiltered" type="button">현재 필터 전체 선택</button><button class="text-button" id="bibClearSelected" type="button">선택 해제</button><label>선택 항목 처리<select id="bibBulkAction"><option value="row">각 행에서 선택한 동작</option><option value="match">선택한 공식 논문으로 연결</option><option value="dismiss">논문 후보에서 제외</option><option value="separate">서지 연결 없이 별도 유지</option></select></label></div>
     <div id="bibReviewPreview" aria-labelledby="bibPreviewTitle"></div>
-    <button class="button primary" id="bibReviewApply" type="button" disabled>선택한 0건 최종 승인·적용</button>
+    <div class="bib-workspace-pagination"><button class="button" id="bibQueuePrev" type="button">이전</button><span id="bibQueuePage"></span><button class="button" id="bibQueueNext" type="button">다음</button></div>
+    <div class="bib-workspace-approval"><p id="bibSelectedCount">0건 선택됨</p><button class="button primary" id="bibReviewApply" type="button" disabled>선택한 0건 최종 승인·적용</button></div>
     <details class="bib-advanced" id="bibAdvanced"><summary>고급 설정</summary>
       <div class="bib-advanced-group"><h4>전체 파일의 LLM 배치 크기</h4><p>파일은 항상 하나입니다. LLM이 나누어 처리하도록 파일 안의 batches 구간 크기만 바꿉니다.</p><div class="bib-actions"><select id="bibBatchSize" aria-label="전체 검토 JSON의 LLM 배치 크기"><option value="50">50건씩</option><option value="60">60건씩</option><option value="80" selected>80건씩</option><option value="100">100건씩</option></select></div></div>
       <div class="bib-advanced-group"><h4>그룹별·묶음별 다운로드</h4><p>이전 방식입니다. 연결 후보 유무로 나눈 30~50건 묶음을 하나씩 받습니다. 결과는 위의 가져오기로 함께 가져올 수 있습니다.</p><div class="bib-actions"><select id="bibExportGroup" aria-label="LLM 검토 그룹"><option value="with-candidates">연결 후보 있음</option><option value="without-candidates">연결 후보 없음</option></select><select id="bibExportSize" aria-label="LLM 검토 묶음 크기"><option value="30">30건씩</option><option value="40" selected>40건씩</option><option value="50">50건씩</option></select><label>묶음 <input id="bibExportPage" type="number" min="1" value="1" aria-label="LLM 검토 묶음 번호"></label><a class="button" id="bibCompactDownload" href="/api/bibliography/export?format=compact" download>이 묶음 JSON 받기</a></div><p id="bibExportInfo"></p></div>
       <div class="bib-advanced-group"><h4>결과 JSON 직접 붙여넣기</h4><label for="bibReviewInput">파일 대신 LLM 응답의 JSON을 붙여넣습니다.</label><textarea id="bibReviewInput" rows="6" spellcheck="false" placeholder='{"schemaVersion":2,"snapshot":"…","decisions":[]}'></textarea><button class="button" id="bibReviewPaste" type="button">붙여넣은 JSON 가져오기</button></div>
-      <div class="bib-advanced-group"><h4>형식과 진단</h4><p><a href="/api/bibliography/review-schema" target="_blank" rel="noopener">결과 JSON 스키마</a> · <a href="/api/bibliography/export?format=full" download>전체 진단 JSON</a> (조회 로그와 서지 레코드 전체. LLM 입력으로는 크기가 큽니다.)</p></div>
+      <div class="bib-advanced-group"><h4>형식과 진단</h4><p><a href="/api/bibliography/review-schema" target="_blank" rel="noopener">결과 JSON 스키마</a> · <a href="/api/bibliography/export?format=full" download>전체 진단 JSON</a> (조회 로그와 서지 레코드 전체. LLM 입력으로는 크기가 큽니다.)</p><div id="bibDiagnostics"></div><details id="bibAliasDiagnostics"></details><details id="bibWorkVersions"></details></div>
     </details>
   </section>
-  <div id="bibDiagnostics"></div><details id="bibAliasDiagnostics"></details><details id="bibWorkVersions"></details><div id="bibQueue"></div>
 </dialog>
 <dialog id="mediaDialog" aria-labelledby="mediaTitle">
   <div class="dialog-heading"><div><span class="eyebrow">FIGURE LIBRARY</span><h2 id="mediaTitle">Figure 추출 · 갤러리</h2></div><button class="icon-button" id="closeMedia" aria-label="Figure 추출 닫기">×</button></div>

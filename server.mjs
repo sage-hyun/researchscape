@@ -16,6 +16,7 @@ import {publicRoutes,requestAccess} from './lib/request-access.mjs';
 import {compactReviewExport,reviewBundleExport,reviewGroups,reviewSnapshot,reviewResultSchema,planReviewImport,applyReviewPlan} from './lib/bibliography-review.mjs';
 import {ReviewImportManager} from './lib/review-import.mjs';
 import {createReviewAPI} from './lib/review-api.mjs';
+import {BibliographyWorkspace} from './lib/bibliography-workspace.mjs';
 import {createZoteroAPI} from './lib/zotero-api.mjs';
 import {createAnnotationAPI} from './lib/annotation-api.mjs';
 import {createAcquisitionAPI} from './lib/acquisition-api.mjs';
@@ -81,7 +82,10 @@ const localAsset=(res,file,headers)=>{res.writeHead(200,headers);const stream=fs
 const media=new FigureManager({root:ROOT,state:LOCAL,getPapers:()=>enriched(index.papers,false)});
 async function body(req) {
   let chunks=[],size=0;
-  for await(const chunk of req){size+=chunk.length;if(size>2_000_000)throw new Error('입력은 2MB 이하로 줄여주세요.');chunks.push(chunk);}
+  // Drain rejected bodies without retaining them. Abandoning an async iterator
+  // here can reset the keep-alive connection used by the following JSON upload.
+  for await(const chunk of req){size+=chunk.length;if(size<=2_000_000)chunks.push(chunk);else chunks=[];}
+  if(size>2_000_000)throw new Error('입력은 2MB 이하로 줄여주세요.');
   return JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}');
 }
 const enriched=(papers=index.papers,includeMedia=true)=>papers.map(p=>{
@@ -152,6 +156,12 @@ const reviewImports=new ReviewImportManager({
   saveDecisions:value=>{save('bibliography-decisions.json',value);bibDecisions=value;}
 });
 const reviewAPI=createReviewAPI({manager:reviewImports,json,body});
+const bibliographyWorkspace=new BibliographyWorkspace({
+  imports:reviewImports,busy:()=>syncRunning()||reviewImports.verifying,
+  context:()=>{refreshBibliography();reviews=load('reviews.json',{});return {raw:rawIndex,store:bibliography,resolved:index,decisions:bibDecisions,reviews};},
+  saveDecisions:value=>{save('bibliography-decisions.json',value);bibDecisions=value;},
+  saveReviews:value=>{save('reviews.json',value);reviews=value;},refresh:applyBibliography
+});
 const publicFiles=new Set(['index.html','style.css','app.js','media.js','bibliography-review.js','zotero.js','annotations.js','acquisition.js']);
 const server=http.createServer(async(req,res)=>{
   try {
@@ -164,6 +174,13 @@ const server=http.createServer(async(req,res)=>{
     if(url.pathname.startsWith('/api/annotations/')){refreshBibliography();media.refresh();return annotationAPI.handle(req,res,url);}
     if(url.pathname.startsWith('/api/acquisition')){refreshBibliography();media.refresh();return acquisitionAPI.handle(req,res,url);}
     if(url.pathname===reviewAPI.prefix||url.pathname.startsWith(reviewAPI.prefix+'/'))return reviewAPI.handle(req,res,url);
+    if(url.pathname==='/api/bibliography/review/queue'||url.pathname==='/api/bibliography/review/queue/apply'){
+      try{
+        if(req.method==='GET'&&url.pathname.endsWith('/queue'))return json(res,200,bibliographyWorkspace.view(Object.fromEntries(url.searchParams)));
+        if(req.method==='POST'&&url.pathname.endsWith('/apply'))return json(res,200,bibliographyWorkspace.apply(await body(req)));
+        return json(res,405,{error:'Method not allowed'});
+      }catch(e){return json(res,e.httpStatus||400,{error:e.message,code:e.code||'INVALID_REQUEST',...(e.details||{})});}
+    }
     if(url.pathname.startsWith('/api/media')){
       refreshBibliography();media.refresh();
       const getMediaPaper=id=>{const p=enriched(index.papers,false).find(p=>p.id===resolvePaperId(id));if(!p)throw new Error('논문 후보를 찾지 못했습니다.');return p;};
