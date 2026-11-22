@@ -4,7 +4,7 @@
 
 기본 화면에는 네 가지만 있습니다.
 
-1. **전체 LLM 검토 JSON 다운로드**: 미연결 후보 전체를 파일 하나로 받습니다.
+1. **전체 LLM 검토 JSON 다운로드**: 미연결 후보와 중복·버전 검토 후보 쌍을 파일 하나로 받습니다. 이미 연결된 논문도 중복 비교에는 포함됩니다.
 2. **LLM 검토 결과 JSON 가져오기**: LLM이 작성한 결과 파일을 건수 제한 없이 한 번에 가져옵니다. 파일을 여러 개 선택하면 하나의 가져오기로 합칩니다.
 3. **통합 검토 목록**: 상태·LLM 근거·제목으로 필터링하고, 각 행에서 연결할 공식 논문 또는 제외·별도 유지를 선택합니다. 중복은 한 행으로 합치고 50건씩 페이지를 나누므로 60건 이후 후보도 모두 검토할 수 있습니다.
 4. **선택한 N건 최종 승인·적용**: 직접 선택한 항목만 저장합니다.
@@ -26,7 +26,7 @@
   "batchSize": 80,
   "batches": [{"batchId": "b001", "index": 1, "offset": 0, "count": 80, "withCandidates": 31, "withoutCandidates": 49}],
   "instructions": {"task": "…", "batching": "…", "decisions": {}, "rules": [], "evidenceTypes": [], "resultSchema": "…"},
-  "resultTemplate": {"schemaVersion": 2, "snapshot": "같은 값", "batchIds": [], "decisions": []},
+  "resultTemplate": {"schemaVersion": 2, "snapshot": "같은 값", "batchIds": [], "decisions": [], "duplicateSnapshot": "중복 검토 snapshot", "duplicateSuggestions": []},
   "items": [
     {"candidateId": "name:example", "title": "Example", "count": 4, "reason": "similar-title-or-alias",
      "candidateStatus": "with-candidates", "batchId": "b001",
@@ -77,6 +77,49 @@
 
 LLM이 쓴 근거는 자동 검증된 사실로 취급하지 않습니다. 최종 승인 전에 내용을 확인하세요.
 
+### LLM 중복·버전 관계 검토
+
+전체 다운로드에는 `duplicateReview`와 `instructions.duplicateReview`가 들어 있습니다. 기존 `items`·서지 `decisions` 검토와 별개이며, 동일 DOI·arXiv ID, 구체적인 정식 제목, 검증된 약칭 사전 또는 충분히 비슷한 정식 제목을 이용해 코드가 비교할 후보 쌍을 좁힙니다. 기존 서지 조회에서 추천된 레코드가 이미 연결된 논문과 같을 때도 비교 후보로 포함합니다(`shared-record-candidate`). 이는 관계가 검증됐다는 뜻이 아니며 약칭의 정체를 별도로 판단해야 합니다. 짧은 약칭만으로 임의의 논문과 짝짓지 않으며 학회·기술명·소제목·제외된 후보는 건너뜁니다.
+
+- `subjects`: paperId, 제목·관찰된 제목/별칭(최대 12개), 저자(최대 30명), 연도, DOI·arXiv, 언급 수. 원문·대화·프로젝트·Zotero Key·링크 객체는 포함하지 않습니다.
+- `pairs`: 안정적인 pairId, 두 paperIds, 후보를 고른 이유. 같은 쌍은 한 번만 포함합니다.
+- `coverage`: 검사한 논문 수, 후보 쌍 수, 내보낸 쌍 수, 생략 여부. 일반적인 단어 때문에 커진 버킷은 생략하고 논문당 최대 6쌍·전체 최대 1,500쌍으로 제한합니다. 이 목록이 전체 중복을 망라하지는 않습니다.
+- `snapshot`: 서지 후보 snapshot과 독립된 중복 검토 해시. 언급 수 변경만으로 무효가 되지 않습니다.
+
+LLM은 아래 네 관계 중 하나를 고릅니다. 파일 안에 관계 설명·식별자 규칙·개별 결과 스키마도 포함되어 있습니다.
+
+| decision | 의미 | 가져온 뒤 동작 |
+| --- | --- | --- |
+| `same_paper` | 동일 논문의 중복 항목 | 검증된 기존 논문이 있으면 통합 선택지에 추천. 사용자가 직접 선택·최종 승인 |
+| `same_work_different_version` | 동일 연구의 프리프린트·출판본 등 | 버전 제안만 표시. PDF·주석·논문을 분리 유지 |
+| `different` | 서로 다른 논문·자료 | 관계 근거만 표시. 통합 추천 안 함 |
+| `uncertain` | 근거 부족·충돌로 미확정 | 근거만 표시. 통합 추천 안 함 |
+
+결과에는 기존 `decisions`와 함께 선택적인 `duplicateSnapshot`, `duplicateSuggestions`를 넣습니다. 중복 검토만 했으면 `decisions: []`도 가능합니다. 아래 ID·해시는 예시이며 실제로는 내보낸 값을 복사해야 합니다.
+
+```json
+{
+  "schemaVersion": 2,
+  "snapshot": "내려받은 파일의 snapshot",
+  "decisions": [],
+  "duplicateSnapshot": "duplicateReview.snapshot 값",
+  "duplicateSuggestions": [{
+    "pairId": "pairs에 제공된 pairId",
+    "paperIds": ["첫 번째 paperId", "두 번째 paperId"],
+    "decision": "uncertain",
+    "evidence": [{"type": "insufficient-evidence", "detail": "저자·버전 관계를 확인할 근거가 부족합니다."}],
+    "identifiers": {"doi": [], "arxiv": []},
+    "needsManualReview": true
+  }]
+}
+```
+
+식별자는 해당 쌍의 `subjects`에 실제로 제공된 값만 복사합니다. 새로운 식별자는 기존 서지 `propose`로 공식 조회를 받아야 합니다. 모든 중복 결과는 `proposed`로 저장하며 `needsManualReview: true`가 필수입니다. LLM 출력으로 기존 결정·PDF·주석을 변경하지 않습니다.
+
+같은 **LLM 검토 결과 JSON 가져오기** 버튼으로 가져옵니다. 요약에 검증·제안·오류 쌍 수를 표시하고 기존 통합 검토 행 안에서 관계 근거를 확인할 수 있습니다. 같은 논문 제안은 **검토할 항목**, 나머지는 **처리 완료 / 전체**에서도 확인합니다. 별도 병합 화면이나 자동 승인 버튼은 추가하지 않습니다. 같은 파일을 다시 가져오면 기존 작업을 열고, 같은 쌍의 충돌 결과는 오류로 남깁니다.
+
+중복 내보내기 기록은 개인 state의 `review-exports/duplicate-<snapshot>.json`에 최근 12개까지 보관하며 결과·진행 위치는 기존 `review-imports/<id>/`에 저장합니다. 재시작 후 복원하고 중단 지점부터 검증할 수 있습니다. 오래된 내보내기 기록이 없거나 paperId·서지정보가 바뀌면 추천을 막고 사유를 표시합니다. 기존 schemaVersion 1·2 결과와 compact 다운로드 형식은 그대로 지원합니다.
+
 ## 가져오기 작업
 
 가져오기는 서버의 개인 state 폴더에 저장되는 **작업**입니다. 창을 닫거나 서버를 재시작해도 남아 있으며, 서지 정리를 다시 열면 마지막 미완료 작업을 복원합니다.
@@ -116,17 +159,56 @@ LLM이 쓴 근거는 자동 검증된 사실로 취급하지 않습니다. 최�
 
 - **검토할 항목 → external-identifier**로 필터링하면 공식 조회된 약칭 후보를 모아 볼 수 있습니다. CoMA처럼 공식 레코드는 찾았지만 약칭 관계가 자동 확인되지 않은 `weak-link`도 체크할 수 있습니다. 공식 제목·저자·연도·식별자를 보고 확인한 뒤 승인하세요. 이 변경은 자동 연결 기준을 낮추지 않으며 기존 JSON을 다시 작성하거나 가져올 필요가 없습니다.
 - 후보가 여러 개이면 드롭다운에서 연결할 논문을 직접 선택합니다. 조회 실패·제목 충돌 때문에 등록되지 않은 레코드는 연결 선택지로 제공하지 않습니다. 연결 가능한 레코드가 없으면 연결 승인이 불가능하며 제외·별도 유지 여부만 직접 결정할 수 있습니다.
+- **정식 제목 일치**는 제안된 근거 유형이며, 현재 연결 가능한 공식 레코드가 있다는 뜻은 아닙니다. 공식 레코드가 있어도 DOI·arXiv ID·제목이 충돌하면 해당 레코드를 보류합니다. **연결이 보류된 후보와 사유**에서 해당 레코드와 충돌 식별자를 확인할 수 있습니다. 한 집계 레코드 안에 여러 Zenodo DOI가 섞여 있더라도, 독립적으로 일관된 arXiv·출판사 레코드까지 함께 막지는 않습니다. 원본 캐시와 기존 수동 결정은 이 진단 표시 때문에 바뀌지 않습니다.
 - **insufficient-evidence**는 논문이 아니라는 확정 판정이 아닙니다. 이 근거 유형으로 필터링하고 원하는 항목을 선택한 뒤 **선택 항목 처리 → 논문 후보에서 제외**를 고르면, 최종 승인 후 `reviews.json`에 `status: dismissed`를 기록합니다. 원문·Mention·Zotero Key·PDF·Figure를 삭제하지 않습니다.
 - **서지 연결 없이 별도 유지**는 `bibliography-decisions.json`의 `separate`이며 후보 제외와 다릅니다. LLM 결과의 기존 `separate` 의미도 변경하지 않습니다. 후보 제외는 논문 상세의 기존 검토 상태에서 되돌릴 수 있습니다.
-- 기존 수동 연결·분리 또는 `confirmed`/`dismissed` 검토 상태는 통합 화면에서 덮어쓰지 않습니다. `confirmed` 논문도 서지정보를 연결할 수 있지만 이 화면에서 후보 제외로 바꿀 수는 없습니다. 미리보기 뒤에 바뀐 후보·공식정보도 건너뛰며 다시 확인해야 합니다. 선택 건수 옆에 연결·후보 제외·별도 유지 건수를 나눠 표시합니다.
+- 기존 수동 연결·분리 또는 `confirmed`/`dismissed` 검토 상태를 일반 연결·제외 동작으로 덮어쓰지 않습니다. `confirmed` 논문도 서지정보를 연결할 수 있지만 이 화면에서 후보 제외로 바꿀 수는 없습니다. 이미 승인한 연결을 **기존 논문과 통합**으로 명시적으로 재승인하면 기존 결정은 `history`에 보존합니다. 미리보기 뒤에 바뀐 후보·공식정보도 건너뛰며 다시 확인해야 합니다. 선택 건수 옆에 연결·통합·후보 제외·별도 유지 건수를 나눠 표시합니다.
+
+### 기존 논문과 대화·언급 통합
+
+1. 후보의 동작에서 **기존 논문을 검색해 통합…**을 선택합니다. 식별자·정식 제목이 일치하는 기존 논문은 직접 선택지로도 표시합니다. 약칭만 같다는 이유로 자동 통합하지 않습니다.
+2. 기존 라이브러리의 논문을 제목·DOI·arXiv로 검색해 고릅니다. 공식 레코드가 일관된 대상만 선택할 수 있고, 이미 승인한 논문을 먼저 보여줍니다.
+3. 대상 제목·식별자와 기존/추가 언급 수를 확인하고 체크한 뒤 **최종 승인·적용**을 누릅니다. 처리 완료 항목도 명시적 통합만 가능합니다. 자신에게 통합하거나 같은 배치에서 통합 대상을 다시 다른 곳으로 옮기는 연쇄 동작은 막습니다.
+
+실제로는 원본 후보를 지우는 대신, 원래 candidateId를 같은 공식 recordId에 연결하는 수동 결정을 저장합니다. 통합할 논문에 이미 여러 후보가 묶여 있으면 그 논문의 모든 sourceCandidateIds를 함께 연결하며 각 기존 결정을 이력으로 보존합니다. 기존 `reconcileIndex`가 Mention·대화·프로젝트를 같은 논문 아래 모읍니다. 원본 Export·발췌·날짜·작성자·프로젝트 매핑은 그대로이고 같은 구절의 중복만 표시 통계에서 제거합니다. 이전 논문 ID도 memberIds·redirects에 이어 주므로 그 ID에 저장된 Zotero Key·수동 PDF 연결·Figure·Crop·대표 이미지 선택과 이전 링크를 계속 사용할 수 있습니다. 서로 다른 수동 PDF/썸네일이나 Zotero Key가 있으면 충돌을 보존해 선택이 필요할 수 있습니다.
+
+UI의 `merge` 동작은 LLM 결과 스키마의 새 decision이 아닙니다. 통합 API `selections`에 `action: "merge"`, `targetPaperId`, `targetToken`을 주고 명시적으로 승인합니다. 서버는 현재 대상과 token을 재검사해 `action: "match"`로 저장하고 `mergeTargetPaperId`를 기록합니다. 기존 승인 변경 시 그 내용은 `history`에 남으며, 대상 논문의 승인 기록은 덮어쓰지 않습니다.
+
+### OpenAlex 저장소 DOI와 논문 식별자
+
+OpenAlex의 `doi`는 논문 본체 식별자로 취급하지만, `locations`의 DOI는 저장소 예치본·데이터·버전의 ID일 수 있습니다. 새 조회에서는 접근 위치의 다른 DOI를 `relatedIdentifiers`와 출처 링크로 보존하며 논문 본체의 동일성 판단에 바로 쓰지 않습니다. 명시적인 식별자 집합은 `identityIdentifiers`에 남깁니다. 기존 캐시에 여러 DOI를 가진 집계 레코드가 있으면 그 모순된 레코드만 분리 보류하여, 독립된 정상 arXiv·출판사 레코드를 오염시키지 않습니다. 과거 JSON을 일괄 수정하거나 식별자·출처를 삭제하는 마이그레이션은 없습니다.
+
+새 LLM 다운로드에는 정식 제목과 확인한 `proposal.arxiv`/`proposal.doi`를 함께 쓰라는 지침·예시 및 10종류 근거 설명이 포함됩니다. 기존 후보이면 기존 `recordId`를 그대로 사용하고, 새로운 ID는 `propose`로 제안해야 합니다. ID를 모르면 만들어 내지 않도록 하며, LLM의 제안만으로 저장소 DOI 충돌이나 버전 차이를 자동 해결하지 않습니다.
 
 통합 화면은 `GET /api/bibliography/review/queue`를 사용합니다. `importId`, `status`, `evidence`, `search`, `offset`, `limit` 필터를 지원하며 `ids=selectable`로 필터 전체의 선택 정보를 받을 수 있습니다. `POST /api/bibliography/review/queue/apply`에는 `approved: true`, 선택적으로 `importId`, `confirmSnapshot`, 그리고 `selections: [{candidateId, token, action: "match"|"dismiss"|"separate", recordId?}]`를 보냅니다. token은 현재 후보·서지 레코드·수동 결정의 해시이며 적용 시 다시 비교합니다. LLM이 쓴 근거 유형 자체는 쓰기 권한이 아닙니다.
+
+### 근거 유형과 검토 순서
+
+**근거 유형** 필터에는 JSON이 지원하는 10종류와 **근거 미기재**가 모두 나옵니다. 종류별 건수는 현재 검토 상태·검색 조건을 기준으로 표시합니다. 여러 근거를 가진 항목은 각 유형에 집계되므로 유형별 건수의 합이 논문 수와 다를 수 있습니다. **정렬 → 연결 근거 강한 순**을 고르면 아래 기준으로 정렬합니다. 기본 정렬은 언급 많은 순이며, 같은 우선순위에서는 언급 수·candidateId 순서를 사용합니다.
+
+| 순서 | 유형 | 의미 |
+| --- | --- | --- |
+| 1 | `identifier-match` | 원래 언급과 공식 논문의 DOI·arXiv 등 식별자 일치 |
+| 2 | `exact-title` | 충분히 구체적인 정식 제목의 정확한 일치 |
+| 3 | `explicit-alias-expansion` | 약칭과 정식 제목이 명시적으로 대응 |
+| 4 | `author-year-match` | 저자·연도가 일치하는 보조 근거 |
+| 5 | `external-identifier` | 외부 식별자 제안. 존재 확인과 약칭 연결은 별개 |
+| 6 | `same-message` | 같은 메시지의 맥락 |
+| 7 | `adjacent-message` | 인접 메시지의 맥락 |
+| 8 | `possible-work-version` | 같은 연구의 다른 버전 가능성. 자동 동일시 금지 |
+| 9 | `insufficient-evidence` | 근거 부족. 논문이 아니라는 판정은 아님 |
+| 10 | `conflicting-identifiers` | 식별자 충돌. 먼저 해결해야 하는 반대 근거 |
+
+이 순서는 검토 우선순위이며 검증된 확률 점수가 아닙니다. 유형은 LLM 결과에 적힌 주장일 수 있고, 기존 자동 연결·최종 승인 조건을 바꾸지 않습니다. 여러 유형이 함께 있으면 강한 유형을 먼저 보되, 식별자 충돌·근거 부족·버전 가능성은 강한 라벨보다 우선해 뒤로 정렬합니다. 공식 조회에서 충돌·모호성·제목 불일치가 확인되면 10순위, 조회 실패·검색 누락은 최소 9순위, 약칭 연결 미확인(`weak-link`)은 최소 5순위로 보정합니다. 근거 미기재는 마지막에 둡니다.
+
+API는 `evidence=<type>` 또는 `evidence=none`, `sort=count|evidence`를 지원합니다. 응답의 `evidenceCatalog`는 순서·한국어 이름·설명, `evidenceCounts`는 유형별 건수이며 행별 `evidenceTypes`·`evidencePriority`는 조회 시 계산합니다. 원본 근거와 수동 결정을 수정하거나 재검증을 자동 실행하지 않습니다.
 
 ### snapshot 충돌 확인
 
 결과의 snapshot이 현재와 다르다고 전체를 거부하지 않습니다.
 
 - 서버가 내보낸 기록이 있는 snapshot이면 **후보별로** 대조합니다. 내려받은 뒤 연결 후보가 바뀐 항목과 그 파일에 없던 후보만 추가 검토로 분류하고, 변하지 않은 항목은 그대로 진행합니다. 그래서 배치 일부를 먼저 적용한 뒤에도 나머지 배치의 결과를 가져올 수 있습니다. 언급 수 변화와 검증된 LLM 제안으로 등록된 후보는 변경으로 보지 않습니다.
+- 후보 변경은 논문이 바뀌었거나 LLM의 판단이 틀렸다는 뜻이 아닙니다. 서지 조회·정리로 공식 레코드나 후보 ID 목록이 바뀐 경우도 포함합니다. 통합 화면에서 현재 후보가 있으면 직접 확인해 선택할 수 있고, 현재 후보가 없으면 공식 서지정보를 확인해야 합니다. LLM 결과 JSON을 반드시 다시 생성해야 하는 것은 아닙니다. 과거 가져오기 파일의 경고·snapshot 기록은 보존하며 화면에 현재 검토 방법을 별도로 안내합니다.
 - 기록이 없는 snapshot(다른 PC나 오래된 내보내기)은 후보별 대조가 불가능합니다. 현재 상태로 검증한 뒤, 미리보기에서 **다른 snapshot의 결과임을 확인**해야 적용할 수 있습니다(`confirmSnapshot: true`).
 
 ### 승인과 부분 실패

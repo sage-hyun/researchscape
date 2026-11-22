@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildIndex,normalize} from '../lib/extract.mjs';
-import {crossrefRecord,synchronizeBibliography,fetchMetadata,lookupKey,providerLookupKey,openalexRecord,semanticScholarRecord} from '../lib/bibliography.mjs';
+import {crossrefRecord,synchronizeBibliography,fetchMetadata,lookupKey,providerLookupKey,openalexRecord,semanticScholarRecord,putRecord} from '../lib/bibliography.mjs';
+import {metadataCatalog} from '../lib/bibliography-catalog.mjs';
 import {reconcileIndex} from '../lib/reconcile.mjs';
 
 const title='Novel Motion Representation Learning with Inertial Sensors';
@@ -34,6 +35,14 @@ test('OpenAlex locations and S2 external IDs retain separate landing, DOI, prepr
   assert.equal(b.id,'doi:10.1234/novel');assert.ok(b.links.pdf.some(l=>l.url.endsWith('novel.pdf')));assert.ok(b.links.preprint.length);
   const crossref=crossrefRecord({DOI:'10.1234/pdf',title:[title],resource:{primary:{URL:'https://publisher.example/landing'}},link:[{URL:'https://publisher.example/download?id=fixture','content-type':'application/pdf'}]});
   assert.ok(crossref.links.pdf.some(l=>l.url.includes('/download?')));assert.ok(crossref.links.landing.some(l=>l.url.endsWith('/landing')));
+});
+
+test('OpenAlex repository DOI locations are retained as links and related IDs without becoming Work identity',()=>{
+  const a=openalexRecord({id:'https://openalex.org/Wfixture',title,doi:'https://doi.org/10.48550/arxiv.1701.06538',primary_location:{landing_page_url:'https://arxiv.org/abs/1701.06538'},locations:[{landing_page_url:'https://doi.org/10.5281/zenodo.17754506'},{landing_page_url:'https://doi.org/10.5281/zenodo.17754507'}]});
+  assert.equal(a.identifiers.filter(i=>i.kind==='doi').length,1);assert.ok(a.identifiers.some(i=>i.key==='arxiv:1701.06538'));assert.equal(a.relatedIdentifiers.length,2);assert.equal(a.links.doi.filter(l=>l.url.includes('zenodo')).length,2);assert.deepEqual(a.identityIdentifiers,a.identifiers);
+  const {identityIdentifiers,relatedIdentifiers,...old}=a,legacy={...old,identifiers:[...a.identifiers,...a.relatedIdentifiers]},store={records:{[a.id]:legacy}};putRecord(store,a);
+  assert.ok(store.records[a.id].identifiers.some(i=>i.value==='10.5281/zenodo.17754506'),'historical IDs remain stored');
+  const catalog=metadataCatalog(Object.values(store.records));assert.equal(catalog.records[0].identityConflict,undefined);assert.equal(catalog.records[0].identifiers.filter(i=>i.kind==='doi').length,1);
 });
 
 test('similar title search results are suggestions even if S2 returns a high matchScore',async()=>{

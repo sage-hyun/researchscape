@@ -2,11 +2,11 @@
 (()=>{
   const route='/api/bibliography/review/import',workspace='/api/bibliography/review/queue',PAGE=50,MAX_UPLOAD=16*1024*1024;
   const statuses={pending:'검토할 항목',completed:'처리 완료',error:'오류',all:'전체'};
-  const statusHelp={pending:'아직 연결·후보 제외·별도 유지 결정을 저장하지 않은 항목입니다.',completed:'이미 처리했거나 기존 결정을 유지하는 항목입니다. 처리 내용은 각 항목에서 확인하세요.',error:'JSON 형식이나 후보·레코드 ID에 문제가 있는 항목입니다. 근거를 확인해 수정한 결과를 다시 가져와주세요.',all:'검토할 항목, 처리 완료, 오류를 함께 보여줍니다.'};
-  let totals={withCandidates:0,withoutCandidates:0},job=null,queue=null,offset=0,selected=new Map(),choices=new Map(),working=false,restore=true,timer=null,searchTimer=null,version=0,confirmed=false,notice='',failure='';
+  const statusHelp={pending:'아직 연결·후보 제외·별도 유지 결정을 저장하지 않은 항목입니다.',completed:'이미 처리한 항목입니다. 다른 기존 논문과 통합할 수 있으며, 이전 승인 내용은 이력으로 보존합니다.',error:'JSON 형식이나 후보·레코드 ID에 문제가 있는 항목입니다. 근거를 확인해 수정한 결과를 다시 가져와주세요.',all:'검토할 항목, 처리 완료, 오류를 함께 보여줍니다.'};
+  let totals={withCandidates:0,withoutCandidates:0},job=null,queue=null,offset=0,selected=new Map(),choices=new Map(),mergeQueries=new Map(),working=false,restore=true,timer=null,searchTimer=null,version=0,confirmed=false,notice='',failure='';
   const selection=s=>({...s,action:s.action||'',recordId:s.recordId||null});
-  const filters=()=>({status:$('#bibQueueStatus').value,evidence:$('#bibQueueEvidence').value,search:$('#bibQueueSearch').value});
-  function bundleLink(){const size=Number($('#bibBatchSize').value),total=totals.withCandidates+totals.withoutCandidates;$('#bibBundleDownload').href=appUrl('/api/bibliography/export?'+new URLSearchParams({format:'bundle',batchSize:size}));$('#bibBundleInfo').textContent=`미연결 후보 ${num(total)}건 · 파일 1개 · LLM용 ${size}건 배치 ${num(Math.ceil(total/size))}개 포함`;}
+  const filters=()=>({status:$('#bibQueueStatus').value,evidence:$('#bibQueueEvidence').value,sort:$('#bibQueueSort').value,search:$('#bibQueueSearch').value});
+  function bundleLink(){const size=Number($('#bibBatchSize').value),total=totals.withCandidates+totals.withoutCandidates;$('#bibBundleDownload').href=appUrl('/api/bibliography/export?'+new URLSearchParams({format:'bundle',batchSize:size}));$('#bibBundleInfo').textContent=`미연결 후보 ${num(total)}건 · 파일 1개 · ${size}건 배치 · 기존 논문과의 중복 후보 쌍·검토 지침 포함`;}
   function exportLink(){const group=$('#bibExportGroup').value,limit=Number($('#bibExportSize').value),total=totals[group==='with-candidates'?'withCandidates':'withoutCandidates'],pages=Math.max(1,Math.ceil(total/limit)),page=Math.max(1,Math.min(pages,Number($('#bibExportPage').value)||1));$('#bibExportPage').max=pages;$('#bibExportPage').value=page;$('#bibCompactDownload').href=appUrl('/api/bibliography/export?'+new URLSearchParams({format:'compact',group,limit,offset:(page-1)*limit}));$('#bibExportInfo').textContent=`${num(total)}건 · ${page} / ${pages}묶음`;}
   function refresh(data){
     totals=data.reviewTotals||totals;bundleLink();exportLink();const d=data.diagnostics||{};
@@ -50,22 +50,41 @@
     if(!job)return failure?`<strong>확인 필요</strong><span>${esc(failure)}</span>`:'';
     const c=job.counts||{},button=(action,text)=>`<button class="text-button" data-review-action="${action}" ${working?'disabled':''}>${text}</button>`;
     const title=job.running?`검증 중 ${num(job.processed)} / ${num(job.total)}건`:`가져온 JSON ${num(job.total)}건 · 적용 ${num(c.applied)}건`;
-    return `<strong>${esc(title)}</strong><span>${esc(job.fileName||'결과 JSON')}${job.progress?.current?' · '+esc(job.progress.current):''}</span><div class="bib-import-actions">${job.running?button('stop','검증 중단'):(job.resumable?button('resume','실패 항목 다시 검증'):'')+button('discard','가져온 미리보기 닫기')}</div>${failure?`<span class="bib-import-error">${esc(failure)}</span>`:''}`;
+    const d=job.duplicateReview,duplicates=d?.total?`<span>중복·버전 관계 ${num(d.processed)} / ${num(d.total)}쌍 검증 · 제안 ${num(d.proposed)} · 통합 ${num(d.applied)} · 오류 ${num(d.errors.length)}<br>관계 제안은 각 항목 안에 표시합니다. 다른 버전·다른 논문·판단 보류는 ‘처리 완료’ 또는 ‘전체’에서도 확인하세요.</span>${d.errors.length?`<details><summary>중복 제안 오류</summary>${d.errors.slice(0,20).map(e=>`<p>${esc(e.pairId||'pairId 없음')} · ${esc(e.reason)}</p>`).join('')}${d.errors.length>20?'<p>처음 20개 오류 표시 · 전체 사유는 가져오기 API에서 확인할 수 있습니다.</p>':''}</details>`:''}`:'';
+    return `<strong>${esc(title)}</strong><span>${esc(job.fileName||'결과 JSON')}${job.progress?.current?' · '+esc(job.progress.current):''}</span>${duplicates}<div class="bib-import-actions">${job.running?button('stop','검증 중단'):(job.resumable?button('resume','실패 항목 다시 검증'):'')+button('discard','가져온 미리보기 닫기')}</div>${failure?`<span class="bib-import-error">${esc(failure)}</span>`:''}`;
   }
   function rowChoice(r){return choices.get(r.candidateId)||selection({candidateId:r.candidateId,token:r.token,action:r.defaultAction,recordId:r.recordId});}
-  const choiceValue=s=>s.action==='match'?'match|'+s.recordId:s.action;
+  const choiceValue=s=>s.action==='match'?'match|'+s.recordId:s.action==='merge'?'merge|'+(s.targetPaperId||''):s.action;
+  function mergeTargets(r,s,query=''){
+    const needle=query.toLocaleLowerCase(),all=(queue.libraryTargets||[]).filter(t=>t.paperId!==r.connectedPaper?.paperId&&(t.paperId===s.targetPaperId||[t.title,t.paperId,...t.doi,...t.arxiv].some(v=>v.toLocaleLowerCase().includes(needle))));
+    const shown=all.slice(0,100),chosen=all.find(t=>t.paperId===s.targetPaperId);if(chosen&&!shown.includes(chosen)){shown.unshift(chosen);shown.pop();}return {all,shown};
+  }
+  function mergeHTML(r,s){
+    if(s.action!=='merge')return '';
+    const target=(queue.libraryTargets||[]).find(t=>t.paperId===s.targetPaperId),query=(mergeQueries.get(r.candidateId)||'').toLocaleLowerCase();
+    const list=mergeTargets(r,s,query);
+    return `<div class="bib-merge-preview"><label>통합할 기존 논문 검색<input type="search" data-merge-search="${esc(r.candidateId)}" value="${esc(mergeQueries.get(r.candidateId)||'')}" placeholder="제목, DOI, arXiv ID"></label><select data-merge-target="${esc(r.candidateId)}" aria-label="${esc(r.title)} 통합 대상"><option value="">기존 논문 선택 (${list.all.length}건 · 최대 100건 표시)</option>${list.shown.map(t=>`<option value="${esc(t.paperId)}" ${t.paperId===s.targetPaperId?'selected':''}>${esc(t.title)} · ${t.approved?'승인됨 · ':''}${num(t.count)}회 언급</option>`).join('')}</select>${target?`<p><strong>${esc(target.title)}</strong> · ${esc(target.recordId)}<br>기존 ${num(target.count)}회 + 통합할 논문 ${num(r.mergeSource?.count||r.count)}회의 언급과 대화 맥락을 같은 논문 아래 모읍니다. 겹치는 동일 구절은 중복 집계하지 않습니다.</p>`:'<p>같은 논문인지 확인한 뒤 대상을 선택하세요. 제목 유사성만으로 통합하지 않습니다.</p>'}<p>원본 대화·후보·PDF·대표 이미지 선택을 보존합니다. 서로 다른 수동 PDF·썸네일 선택은 검토가 필요할 수 있습니다.</p></div>`;
+  }
   function rowHTML(r){
     const s=rowChoice(r),value=choiceValue(s),option=(v,text)=>`<option value="${esc(v)}" ${v===value?'selected':''}>${esc(text)}</option>`;
-    const options=option('','동작을 선택하세요')+r.candidates.map(c=>option('match|'+c.recordId,'연결 · '+c.title)).join('')+(r.allowedActions?.includes('dismiss')?option('dismiss','논문 후보에서 제외'):'')+option('separate','서지 연결 없이 별도 유지');
-    const record=r.candidates.find(c=>c.recordId===s.recordId),recordHTML=record?`<p class="bib-official">${esc(record.title)}<br><small>${esc(record.authors.slice(0,5).join(', ')||'저자 정보 없음')} · ${esc(record.year||'연도 미상')} · ${esc(record.recordId)}${record.url?` · <a href="${esc(record.url)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>`:''}</small></p>`:'';
+    const mergeIds=[...new Set([...(r.mergeSuggestions||[]),...(s.targetPaperId?[s.targetPaperId]:[])])];
+    const options=option('','동작을 선택하세요')+(r.allowedActions?.includes('match')?r.candidates.map(c=>option('match|'+c.recordId,'연결 · '+c.title)).join(''):'')+(r.allowedActions?.includes('merge')?mergeIds.map(id=>(queue.libraryTargets||[]).find(t=>t.paperId===id)).filter(Boolean).map(t=>option('merge|'+t.paperId,'기존 논문과 통합 · '+t.title)).join('')+option('merge|','기존 논문을 검색해 통합…'):'')+(r.allowedActions?.includes('dismiss')?option('dismiss','논문 후보에서 제외'):'')+(r.allowedActions?.includes('separate')?option('separate','서지 연결 없이 별도 유지'):'');
+    const record=r.candidates.find(c=>c.recordId===s.recordId)||r.connectedPaper,recordHTML=record?`<p class="bib-official">${esc(record.title)}<br><small>${esc(record.authors.slice(0,5).join(', ')||'저자 정보 없음')} · ${esc(record.year||'연도 미상')} · ${esc(record.recordId)}${record.url?` · <a href="${esc(record.url)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>`:''}</small></p>`:'';
     const reason=r.manualConfirmation?'공식 논문의 존재는 확인됐습니다. 이 약칭이 해당 논문을 뜻하는지 확인하고 승인하세요.':r.reason;
-    return `<article class="bib-review bib-row" data-status="${esc(r.status)}" data-status-group="${esc(r.statusGroup)}"><div class="bib-workspace-row-heading"><label><input type="checkbox" data-review-approve="${esc(r.candidateId)}" ${selected.has(r.candidateId)?'checked':''} ${!r.selectable||working||queue.running?'disabled':''}><strong>${esc(r.title)}</strong></label><span class="bib-row-status">${esc(statuses[r.statusGroup]||'오류')}</span></div><p class="bib-candidate-meta">${num(r.count)}회 언급 · ${esc(r.candidateId)}${r.duplicates?` · 중복 결과 ${num(r.duplicates)}건 통합`:''}</p>${r.selectable?`<select data-review-choice="${esc(r.candidateId)}" aria-label="${esc(r.title)} 검토 동작" ${working||queue.running?'disabled':''}>${options}</select>`:`<p>${r.appliedAction==='dismiss'?'논문 후보에서 제외됨':r.appliedAction==='separate'?'서지 연결 없이 별도 유지':r.appliedAction==='match'?'공식 논문에 연결됨':esc(reason)}</p>`}${recordHTML}${r.selectable?`<p class="bib-row-reason">${esc(reason)}</p>`:''}${r.evidence.length||r.verification?`<details><summary>검토 근거${r.verification?' · '+esc(r.verification.status):''}</summary>${r.evidence.map(e=>`<p><strong>${esc(e.type)}</strong> · ${esc(e.detail)}</p>`).join('')}${r.verification?`<p>${esc(r.verification.detail)}</p>`:''}</details>`:''}</article>`;
+    const blocked=(r.blockedCandidates||[]).length?`<details class="bib-blocked-candidates"><summary>연결이 보류된 후보와 사유 (${r.blockedCandidates.length}건)</summary>${r.blockedCandidates.map(c=>`<div class="bib-blocked-record"><strong>${esc(c.title)}</strong><p>${esc(c.recordId)} · ${esc(c.reason)}</p>${c.issues.map(i=>`<p>${i.type==='multiple-identifiers'?esc(i.kind.toUpperCase())+'가 여러 개입니다: '+esc(i.values.join(', ')):i.type==='conflicting-titles'?'공식 제목이 서로 다릅니다: '+esc(i.values.join(' / ')):'제공자가 반환한 서지정보 안에 충돌이 있습니다.'}</p>`).join('')}${c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">공식 레코드 확인 ↗</a>`:''}</div>`).join('')}</details>`:'';
+    const relations={same_paper:'같은 논문 제안',same_work_different_version:'같은 연구의 다른 버전',different:'서로 다른 논문',uncertain:'관계 판단 보류'};
+    const duplicateHTML=(r.duplicateRecommendations||[]).length?`<details class="bib-duplicate-recommendations" open><summary>LLM 중복·버전 검토 · 자동 병합 안 함</summary>${r.duplicateRecommendations.map(d=>`<div><p><strong>${esc(relations[d.decision])}</strong> · ${esc(d.otherTitle)}<br><small>${esc(d.otherPaperId)}</small></p>${d.evidence.map(e=>`<p>${esc(e.type)} · ${esc(e.detail)}</p>`).join('')}<p>${d.alreadyUnified?'현재 같은 논문 아래 통합되어 있습니다.':d.stale?'검토 후 서지정보나 논문 구성이 바뀌었습니다. 이 제안은 통합 추천에 사용하지 않습니다. 최신 JSON으로 관계를 다시 검토해주세요.':d.decision==='same_paper'?(r.mergeSuggestions.includes(d.otherPaperId)?'동작에서 ‘기존 논문과 통합’을 선택한 뒤 최종 승인하세요.':'통합 대상으로 사용할 검증된 공식 서지정보가 필요합니다. 먼저 해당 논문을 공식 레코드에 연결하세요.'):d.decision==='same_work_different_version'?'버전 관계 제안입니다. PDF와 주석은 각각 유지하며 중복 통합을 추천하지 않습니다.':'이 관계 제안으로 통합을 추천하지 않습니다.'}</p></div>`).join('')}</details>`:'';
+    return `<article class="bib-review bib-row" data-status="${esc(r.status)}" data-status-group="${esc(r.statusGroup)}"><div class="bib-workspace-row-heading"><label><input type="checkbox" data-review-approve="${esc(r.candidateId)}" ${selected.has(r.candidateId)?'checked':''} ${!r.selectable||working||queue.running?'disabled':''}><strong>${esc(r.title)}</strong></label><span class="bib-row-status">${esc(statuses[r.statusGroup]||'오류')}</span></div><p class="bib-candidate-meta">${num(r.count)}회 언급 · ${esc(r.candidateId)}${r.duplicates?` · 중복 결과 ${num(r.duplicates)}건 통합`:''}</p>${r.selectable?`<select data-review-choice="${esc(r.candidateId)}" aria-label="${esc(r.title)} 검토 동작" ${working||queue.running?'disabled':''}>${options}</select>`:`<p>${r.appliedAction==='dismiss'?'논문 후보에서 제외됨':r.appliedAction==='separate'?'서지 연결 없이 별도 유지':r.appliedAction==='merge'?'기존 논문과 통합됨 · 원본 대화 보존':r.appliedAction==='match'?'공식 논문에 연결됨':esc(reason)}</p>`}${recordHTML}${duplicateHTML}${mergeHTML(r,s)}${r.connectionMessage?`<p class="bib-row-reason">${esc(r.connectionMessage)}</p>`:''}${blocked}${r.snapshotNotice?`<p class="bib-notice warn">${esc(r.snapshotNotice)}</p>`:''}${r.selectable&&!r.connectionMessage&&!r.snapshotNotice?`<p class="bib-row-reason">${esc(reason)}</p>`:''}${r.evidence.length||r.verification?`<details><summary>제안된 검토 근거${r.verification?' · '+esc(r.verification.status):''}</summary>${r.evidence.map(e=>`<p><strong>${esc(e.type)}</strong> · ${esc(e.detail)}</p>`).join('')}${r.verification?`<p>${esc(r.verification.detail)}</p>`:''}</details>`:''}</article>`;
   }
   function render(){
     $('#bibReviewPick').disabled=working||!!job?.running;$('#bibReviewPaste').disabled=working||!!job?.running;
     $('#bibImportStatus').hidden=!job&&!failure&&!working;$('#bibImportStatus').innerHTML=working?'<strong>처리 중…</strong>':statusHTML();
     if(!queue){$('#bibReviewPreview').innerHTML='<p>검토 목록을 불러오고 있습니다.</p>';applyButton();return;}
     const groups=queue.groups;
+    const evidence=$('#bibQueueEvidence').value,catalog=queue.evidenceCatalog||[];
+    $('#bibQueueEvidence').innerHTML='<option value="">모든 근거</option>'+catalog.map(e=>`<option value="${esc(e.type)}">${e.rank}. ${esc(e.label)} · ${esc(e.type)} (${num(queue.evidenceCounts?.[e.type])})</option>`).join('')+`<option value="none">근거 미기재 (${num(queue.evidenceCounts?.none)})</option>`;$('#bibQueueEvidence').value=evidence;
+    $('#bibEvidenceHelp').textContent=catalog.find(e=>e.type===evidence)?.detail||(evidence==='none'?'LLM 검토 근거가 기재되지 않은 항목입니다. 근거 미기재만으로 논문이 아니라고 판단하지 않습니다.':'근거 유형으로 필터링하거나 ‘연결 근거 강한 순’으로 정렬할 수 있습니다. LLM이 붙인 유형만으로 연결이 검증되지는 않습니다.');
+    $('#bibEvidenceGuide').innerHTML=catalog.map(e=>`<li><strong>${esc(e.label)}</strong> <code>${esc(e.type)}</code><p>${esc(e.detail)}</p></li>`).join('');
     $('#bibQueueHelp').textContent=statusHelp[$('#bibQueueStatus').value];
     $('#bibQueueSummary').textContent=`검토할 항목 ${num(groups.pending)} · 처리 완료 ${num(groups.completed)} · 오류 ${num(groups.error)} · 현재 필터 ${num(queue.total)}건`;
     let notes=notice?`<p class="bib-notice">${esc(notice)}</p>`:'';
@@ -78,9 +97,9 @@
   }
   function effective(s){const mode=$('#bibBulkAction').value;return mode==='row'?s:{...s,action:mode,recordId:mode==='match'?s.recordId:null};}
   function applyButton(){
-    const counts={match:0,dismiss:0,separate:0},list=[...selected.values()].map(effective),invalid=list.some(s=>!['match','dismiss','separate'].includes(s.action)||s.action==='match'&&!s.recordId);
+    const counts={match:0,merge:0,dismiss:0,separate:0},list=[...selected.values()].map(effective),invalid=list.some(s=>!['match','merge','dismiss','separate'].includes(s.action)||s.action==='match'&&!s.recordId||s.action==='merge'&&(!s.targetPaperId||!s.targetToken));
     for(const s of list)if(s.action in counts)counts[s.action]++;
-    $('#bibSelectedCount').textContent=`${num(list.length)}건 선택 · 연결 ${num(counts.match)} · 후보 제외 ${num(counts.dismiss)} · 별도 유지 ${num(counts.separate)}${invalid?' · 동작을 선택하지 않은 항목이 있습니다.':''}`;
+    $('#bibSelectedCount').textContent=`${num(list.length)}건 선택 · 연결 ${num(counts.match)} · 통합 ${num(counts.merge)} · 후보 제외 ${num(counts.dismiss)} · 별도 유지 ${num(counts.separate)}${invalid?' · 동작 또는 통합 대상을 선택하지 않은 항목이 있습니다.':''}`;
     const button=$('#bibReviewApply');button.disabled=working||!!queue?.running||!list.length||invalid||(queue?.requiresConfirmation&&!confirmed);button.textContent=`선택한 ${num(list.length)}건 최종 승인·적용`;
     $('#bibSelectFiltered').textContent=`현재 필터 ${num(queue?.total)}건 전체 선택`;
   }
@@ -92,6 +111,7 @@
   const resetFilter=()=>{selected.clear();$('#bibBulkAction').value='row';offset=0;failure='';version++;};
   const changedFilter=()=>{clearTimeout(searchTimer);resetFilter();reload();};
   for(const id of ['bibQueueStatus','bibQueueEvidence'])$('#'+id).onchange=changedFilter;
+  $('#bibQueueSort').onchange=()=>{offset=0;reload();};
   // Reset selection when input changes, not when the delayed request starts.
   // Otherwise a preceding request can render the new query before this timer
   // fires and erase a selection the user already made on those results.
@@ -101,13 +121,14 @@
   $('#bibClearSelected').onclick=()=>{selected.clear();$('#bibBulkAction').value='row';render();};$('#bibBulkAction').onchange=applyButton;
   $('#bibReviewNotices').onchange=e=>{if(e.target.matches('[data-review-confirm]')){confirmed=e.target.checked;applyButton();}};
   $('#bibReviewPreview').onchange=e=>{
-    const id=e.target.dataset.reviewApprove||e.target.dataset.reviewChoice,r=queue.rows.find(r=>r.candidateId===id);if(!r)return;
+    const id=e.target.dataset.reviewApprove||e.target.dataset.reviewChoice||e.target.dataset.mergeTarget,r=queue.rows.find(r=>r.candidateId===id);if(!r)return;
     if(e.target.matches('[data-review-approve]')){if(e.target.checked)selected.set(id,rowChoice(r));else selected.delete(id);applyButton();}
-    else if(e.target.matches('[data-review-choice]')){const [action,...parts]=e.target.value.split('|'),s={candidateId:id,token:r.token,action,recordId:action==='match'?parts.join('|'):null};choices.set(id,s);if(selected.has(id))selected.set(id,s);render();}
+    else if(e.target.matches('[data-review-choice],[data-merge-target]')){const [action,...parts]=e.target.matches('[data-merge-target]')?['merge',e.target.value]:e.target.value.split('|'),target=action==='merge'?(queue.libraryTargets||[]).find(t=>t.paperId===parts.join('|')):null,s={candidateId:id,token:r.token,action,recordId:action==='match'?parts.join('|'):null,...(action==='merge'?{targetPaperId:target?.paperId||'',targetToken:target?.token||''}:{})};choices.set(id,s);if(selected.has(id))selected.set(id,s);render();}
   };
+  $('#bibReviewPreview').oninput=e=>{const id=e.target.dataset.mergeSearch;if(!id)return;mergeQueries.set(id,e.target.value);const r=queue.rows.find(r=>r.candidateId===id),s=r&&rowChoice(r);if(!s)return;const select=e.target.closest('.bib-merge-preview').querySelector('[data-merge-target]'),targets=mergeTargets(r,s,e.target.value);select.innerHTML=`<option value="">기존 논문 선택 (${targets.all.length}건 · 최대 100건 표시)</option>`+targets.shown.map(t=>`<option value="${esc(t.paperId)}" ${t.paperId===s.targetPaperId?'selected':''}>${esc(t.title)} · ${num(t.count)}회 언급</option>`).join('');};
   $('#bibReviewApply').onclick=async()=>{
     if(working||$('#bibReviewApply').disabled)return;working=true;failure='';render();
-    try{const result=await post(workspace+'/apply',{...(job?{importId:job.id}:{}),approved:true,confirmSnapshot:confirmed,selections:[...selected.values()].map(effective)});selected.clear();choices.clear();$('#bibBulkAction').value='row';notice=`연결 ${num(result.matched)} · 후보 제외 ${num(result.dismissed)} · 별도 유지 ${num(result.separated)}건 적용${result.skipped.length?` · ${num(result.skipped.length)}건 보존: ${[...new Set(result.skipped.map(s=>s.reason))].join(' ')}`:''}`;toast('승인한 서지 검토를 저장했습니다.');}
+    try{const result=await post(workspace+'/apply',{...(job?{importId:job.id}:{}),approved:true,confirmSnapshot:confirmed,selections:[...selected.values()].map(effective)});selected.clear();choices.clear();$('#bibBulkAction').value='row';notice=`연결 ${num(result.matched)} · 통합 ${num(result.merged)} · 후보 제외 ${num(result.dismissed)} · 별도 유지 ${num(result.separated)}건 적용${result.skipped.length?` · ${num(result.skipped.length)}건 보존: ${[...new Set(result.skipped.map(s=>s.reason))].join(' ')}`:''}`;toast('승인한 서지 검토를 저장했습니다.');}
     catch(e){failure=e.message;if(e.code==='PARTIAL_APPLY')selected.clear();}finally{working=false;}
     if(!$('#drawer').hidden)closeDrawer();await reload();await load();await refreshBibDialog();
   };

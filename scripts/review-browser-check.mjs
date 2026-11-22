@@ -60,6 +60,8 @@ try{
 
   // ---- unified queue, with no separate candidate section or per-row buttons ----
   await until('document.querySelectorAll(".bib-row").length===50','initial unified queue');
+  assert.equal(await run('document.querySelectorAll("#bibQueueEvidence option").length'),12,'all ten types, all and missing evidence');
+  assert.equal(await run('document.querySelectorAll("#bibEvidenceGuide li").length'),10);
   assert.equal(await run('!!document.querySelector("#bibQueue")'),false);
   assert.equal(await run('document.querySelector("#bibAdvanced").open'),false);
   assert.equal(await run('document.querySelectorAll(".bib-row button").length'),0);
@@ -96,7 +98,7 @@ try{
   assert.equal(Object.keys(JSON.parse(await fs.readFile(path.join(state,'bibliography-decisions.json'),'utf8'))).length,599);
   await until('document.querySelector("#bibBundleInfo").textContent.includes("621건")','remaining candidates');
   await change('bibQueueStatus','completed');await until('document.querySelector("#bibQueueSummary").textContent.includes("현재 필터 599건")','completed group');
-  assert.equal(await run('document.querySelectorAll(".bib-row input:not(:disabled)").length'),0);
+  assert.equal(await run(`document.querySelectorAll(".bib-row select option[value^='match|']").length`),0,'completed approvals can only be explicitly merged, not overwritten by ordinary actions');
   await chooseFiles(files);await until('document.querySelector("#bibReviewNotices").textContent.includes("이미 가져온 JSON")','reopen duplicate');
   assert.equal((await(await fetch(base+'/api/bibliography/review/import')).json()).imports.length,1);
   await run('document.querySelector("#bibAdvanced").open=true');await change('bibBatchSize','50');assert.ok((await run('document.querySelector("#bibBundleDownload").href')).includes('batchSize=50'));

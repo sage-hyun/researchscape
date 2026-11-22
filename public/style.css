@@ -17,11 +17,20 @@
 /* One human approval surface for cached candidates and LLM reviews. */
 #bibliographyDialog{width:min(1000px,calc(100vw - 32px));overflow-x:hidden}
 #bibliographyDialog .bib-llm{padding:18px}
-#bibliographyDialog .bib-workspace-filters{display:grid;grid-template-columns:1fr 1.25fr 1.3fr;align-items:end;gap:12px;margin:18px 0 10px}
+#bibliographyDialog .bib-workspace-filters{display:grid;grid-template-columns:.9fr 1.5fr 1fr 1.2fr;align-items:end;gap:12px;margin:18px 0 10px}
 #bibliographyDialog .bib-workspace-filters label,#bibliographyDialog .bib-workspace-actions label{margin:0;display:grid;gap:7px;font-size:12px;min-width:0}
 #bibliographyDialog .bib-workspace-filters input,#bibliographyDialog .bib-workspace-filters select,#bibliographyDialog .bib-workspace-actions select,#bibliographyDialog .bib-row select{min-width:0;width:100%;margin:0;min-height:40px;border:1px solid #d2d9c8;border-radius:5px;padding:8px 10px;color:var(--ink);background:white;font-family:inherit;font-size:13px;box-sizing:border-box}
 #bibliographyDialog #bibQueueSummary{font-size:12px;line-height:1.8;color:#5e7151}
 #bibliographyDialog #bibQueueHelp{font-size:12px;line-height:1.7;color:#748267;margin:6px 0}
+#bibliographyDialog #bibEvidenceHelp{font-size:12px;line-height:1.7;color:#748267;margin:6px 0}
+.bib-evidence-guide{font-size:12px;line-height:1.7;color:#657657;margin:10px 0}
+.bib-evidence-guide summary{cursor:pointer}.bib-evidence-guide ol{padding-left:24px}.bib-evidence-guide code{font-size:11px;overflow-wrap:anywhere}.bib-evidence-guide li{margin:10px 0}.bib-evidence-guide li p{margin:4px 0}
+.bib-blocked-candidates{border:1px solid #e7d9bf;border-radius:5px;padding:10px 12px;background:#fffaf0}
+.bib-blocked-record{border-top:1px solid #e7d9bf;margin-top:10px;padding-top:10px;font-size:12px;overflow-wrap:anywhere}
+.bib-blocked-record>a{font-size:12px}.bib-blocked-record strong{font-weight:600}
+.bib-merge-preview{margin:12px 0;padding:12px;border:1px solid #cfddc4;border-radius:6px;background:#f1f6ed}
+#bibliographyDialog .bib-merge-preview label{margin:0 0 8px;font-size:12px}
+#bibliographyDialog .bib-merge-preview input{margin:6px 0 0;font-size:13px;min-width:0;box-sizing:border-box}
 .bib-row[data-status-group=completed] .bib-row-status{background:#ebf0e1!important;color:#55703f!important}
 .bib-workspace-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:14px 0;padding:12px 0;border-block:1px solid var(--line)}
 .bib-workspace-actions .text-button{font-size:12px}
@@ -42,7 +51,8 @@
 .bib-workspace-approval{position:sticky;bottom:-30px;background:#fffef9f7;padding:12px 0 8px;border-top:1px solid var(--line);z-index:1}
 #bibliographyDialog #bibSelectedCount{font-size:12px;line-height:1.7;margin:0 0 8px;color:#526a44}
 #bibliographyDialog #bibReviewApply{font-size:13px;min-height:42px}
-@media(max-width:650px){#bibliographyDialog .bib-workspace-filters{grid-template-columns:1fr 1fr}#bibliographyDialog .bib-workspace-filters label:last-child{grid-column:1/-1}#bibliographyDialog .bib-workspace-actions label{margin-left:0;grid-template-columns:1fr;width:100%}#bibliographyDialog .bib-llm{padding:12px}#bibliographyDialog .bib-row{padding:13px}.bib-workspace-approval{bottom:-20px}.bib-workspace-row-heading{gap:8px}}
+@media(max-width:850px){#bibliographyDialog .bib-workspace-filters{grid-template-columns:1fr 1fr}}
+@media(max-width:650px){#bibliographyDialog .bib-workspace-actions label{margin-left:0;grid-template-columns:1fr;width:100%}#bibliographyDialog .bib-llm{padding:12px}#bibliographyDialog .bib-row{padding:13px}.bib-workspace-approval{bottom:-20px}.bib-workspace-row-heading{gap:8px}}
 
 .paper-media-tabs{display:flex;gap:8px;margin-top:22px}.paper-media-tabs [aria-selected=true]{background:var(--green);color:white}.annotation-panel{margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:6px;font-size:12px;line-height:1.7}.annotation-panel pre,#zoteroPreviewResult pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;background:#f7f8f3;padding:10px;font-size:11px}.annotation-input{margin:16px 0;padding:12px;border:1px solid var(--line);border-radius:5px}.annotation-panel textarea{width:100%;display:block;box-sizing:border-box;border:1px solid var(--line);padding:8px;font:12px Consolas,monospace;margin:8px 0}.annotation-panel input[type=number]{width:75px}.annotation-panel select,.annotation-panel input{padding:6px;border:1px solid var(--line);border-radius:3px}.annotation-panel details{margin:8px 0}.annotation-page{position:relative;touch-action:none;user-select:none;margin:14px 0;background:#f3f4ee}.annotation-page img{display:block;width:100%;height:auto}.annotation-page svg{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair}.annotation-card{border:1px solid var(--line);border-left:4px solid #7c986c;border-radius:4px;padding:12px;margin:14px 0}.annotation-card.research-context{border-left-color:#8974b4;background:#f8f6fb}.annotation-card.is-excluded{opacity:.55}.annotation-card blockquote{margin:10px 0;padding:8px 12px;background:#f6f7f0;border-left:2px solid #b5c6a5}.zotero-projects{display:grid;gap:8px;padding:12px 0;max-height:260px;overflow:auto}.zotero-projects small{color:var(--muted)}#zoteroDialog{width:900px}#zoteroStatus,#annMessage{white-space:pre-wrap;color:#566b4a}#annContexts article{border-bottom:1px solid var(--line);padding:12px 0}
 

@@ -4,6 +4,10 @@ import {buildIndex} from '../lib/extract.mjs';
 import {crossrefRecord} from '../lib/bibliography.mjs';
 import {reconcileIndex} from '../lib/reconcile.mjs';
 import {BibliographyWorkspace,reviewStatusGroup} from '../lib/bibliography-workspace.mjs';
+import {REVIEW_EVIDENCE,evidenceOrder} from '../lib/review-evidence.mjs';
+import {EVIDENCE_TYPES} from '../lib/bibliography-review.mjs';
+import {FigureManager} from '../lib/figure-manager.mjs';
+import {matchLibrary,prepareLibrary} from '../lib/pdf-library.mjs';
 
 function fixture(){
   const raw=buildIndex([{id:'c',messages:[{id:'m',role:'user',date:1,text:'CoMA 논문 ResNet 논문 Video-to-IMU 논문 NMAL 논문'}]}]);
@@ -91,4 +95,91 @@ test('four visible review groups partition every row while legacy statuses and s
   const choice=h.selection('name:coma');h.workspace.apply({importId:'fixture',approved:true,selections:[choice]});
   const done=h.workspace.view({...options,status:'completed'});assert.equal(done.total,2);assert.ok(done.rows.some(r=>r.status==='applied'));assert.ok(done.rows.some(r=>r.status==='preserved'));
   assert.deepEqual(h.imported,before);assert.equal(h.decisions['name:nmal'].updatedAt,'preserve');
+});
+
+test('all ten evidence types and missing evidence can be filtered, counted and ordered without changing approval or stored evidence',()=>{
+  assert.deepEqual([...REVIEW_EVIDENCE.map(e=>e.type)].sort(),[...EVIDENCE_TYPES].sort());
+  const h=fixture();h.raw=buildIndex([{id:'c',messages:Array.from({length:11},(_,i)=>({id:'m'+i,role:'user',date:1,text:`EvidenceFixture${i} 논문`}))}]);
+  h.imported.rows=REVIEW_EVIDENCE.map((e,i)=>({candidateId:'name:evidencefixture'+i,status:'needs-manual-review',evidence:[{type:e.type,detail:'Fixture claim'}]}));h.refresh();
+  h.raw.papers.find(p=>p.id==='name:evidencefixture9').count=1000;
+  const before=structuredClone(h.imported),query={importId:'fixture',status:'pending'};
+  const all=h.workspace.view(query);assert.equal(all.total,11);assert.equal(all.rows[0].candidateId,'name:evidencefixture9');
+  for(const e of REVIEW_EVIDENCE){const filtered=h.workspace.view({...query,evidence:e.type,ids:'selectable'});assert.equal(filtered.total,1);assert.deepEqual(filtered.rows[0].evidenceTypes,[e.type]);assert.equal(filtered.selections.length,1);assert.equal(filtered.evidenceCounts[e.type],1);}
+  assert.equal(h.workspace.view({...query,evidence:'none'}).total,1);
+  const ordered=h.workspace.view({...query,sort:'evidence'});assert.deepEqual(ordered.rows.map(r=>r.evidencePriority),Array.from({length:11},(_,i)=>i+1));
+  assert.deepEqual(h.workspace.view({...query,sort:'evidence',offset:5,limit:3}).rows.map(r=>r.evidencePriority),[6,7,8]);
+  assert.deepEqual(h.imported,before);assert.equal(h.writes,0);
+  assert.throws(()=>h.workspace.view({evidence:'made-up'}),e=>e.code==='INVALID_FILTER');assert.throws(()=>h.workspace.view({sort:'made-up'}),e=>e.code==='INVALID_SORT');
+});
+
+test('negative or incomplete verification overrides optimistic LLM evidence labels in the review order',()=>{
+  const claimed={evidence:[{type:'identifier-match',detail:'LLM claim'}]};
+  assert.equal(evidenceOrder({...claimed,verification:{status:'weak-link'}}).evidencePriority,5);
+  assert.equal(evidenceOrder({...claimed,verification:{status:'lookup-failed'}}).evidencePriority,9);
+  assert.equal(evidenceOrder({...claimed,verification:{status:'ambiguous'}}).evidencePriority,10);
+  assert.equal(evidenceOrder({...claimed,reason:'identifier-title-conflict'}).evidencePriority,10);
+  assert.equal(evidenceOrder({evidence:[...claimed.evidence,{type:'conflicting-identifiers'}]}).evidencePriority,10);
+  assert.equal(evidenceOrder({evidence:[...claimed.evidence,{type:'insufficient-evidence'}]}).evidencePriority,9);
+  assert.equal(evidenceOrder({evidence:[...claimed.evidence,{type:'possible-work-version'}]}).evidencePriority,8);
+  assert.deepEqual(evidenceOrder({evidence:[...claimed.evidence,...claimed.evidence]}).evidenceTypes,['identifier-match']);
+});
+
+test('a contradictory OpenAlex record stays blocked without suppressing an independent clean arXiv candidate',()=>{
+  const h=fixture(),title='Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer';
+  const id={key:'arxiv:1701.06538',kind:'arxiv',value:'1701.06538',url:'https://arxiv.org/abs/1701.06538'};
+  const arxiv={id:id.key,title,provider:'arXiv',url:id.url,identifiers:[id],authors:[]},openalex=crossrefRecord({DOI:'10.48550/arxiv.1701.06538',title:[title]});
+  openalex.provider='OpenAlex';openalex.identifiers.push(id,...['10.5281/zenodo.17754506','10.5281/zenodo.17754507'].map(value=>({key:'doi:'+value,kind:'doi',value,url:'https://doi.org/'+value})));
+  h.raw=buildIndex([{id:'c',messages:[{id:'m',role:'user',date:1,text:title+' https://arxiv.org/abs/1701.06538'}]}]);
+  h.store={records:{[arxiv.id]:arxiv,[openalex.id]:openalex},lookups:{}};
+  h.imported.rows=[{candidateId:id.key,status:'needs-manual-review',decision:'match',recordId:id.key,evidence:[{type:'exact-title',detail:'The titles match.'}]}];h.refresh();
+  const before=structuredClone(h.store),r=h.row(id.key);assert.equal(r.candidates.length,1);assert.equal(r.candidates[0].recordId,id.key);assert.equal(r.blockedCandidates.length,1);
+  for(const candidate of r.blockedCandidates){const issue=candidate.issues.find(i=>i.type==='multiple-identifiers'&&i.kind==='doi');assert.deepEqual(issue.values,['doi:10.5281/zenodo.17754506','doi:10.5281/zenodo.17754507']);}
+  assert.equal(h.workspace.apply({approved:true,selections:[{candidateId:id.key,action:'match',recordId:openalex.id,token:r.token}]}).applied,0);
+  assert.equal(h.workspace.apply({approved:true,selections:[{candidateId:id.key,action:'match',recordId:id.key,token:r.token}]}).applied,1);
+  assert.deepEqual(h.store,before);
+});
+
+test('old snapshot warnings point to current manual review and do not force a fresh LLM result',()=>{
+  const h=fixture(),imported=h.imported.rows.find(r=>r.candidateId==='name:coma');imported.snapshotCheck='changed';imported.reason='검토 JSON을 내려받은 뒤 이 후보의 연결 후보가 바뀌었습니다. 최신 검토 JSON으로 다시 검토해주세요.';
+  const r=h.row('name:coma');assert.match(r.snapshotNotice,/현재 후보|아래의 현재/);assert.match(r.snapshotNotice,/반드시 다시 받을 필요는 없습니다/);assert.equal(r.candidates.length,1);
+  assert.equal(h.workspace.apply({importId:'fixture',approved:true,selections:[h.selection('name:coma')]}).matched,1);
+  assert.equal(imported.reason,'검토 JSON을 내려받은 뒤 이 후보의 연결 후보가 바뀌었습니다. 최신 검토 JSON으로 다시 검토해주세요.','stored import history is not rewritten');
+});
+
+test('explicit merge into an approved library paper combines all mentions and preserves source records, keys and target approval',()=>{
+  const h=fixture();h.raw=buildIndex([{id:'c-one',conversation_template_id:'g-p-fixture-a',messages:[{id:'first',role:'user',date:1,text:'CoMA 논문'}]},{id:'c-two',conversation_template_id:'g-p-fixture-b',messages:[{id:'second',role:'user',date:2,text:'Video-to-IMU 논문'}]}]);h.decisions['name:coma']={action:'match',recordId:'doi:10.1234/coma',updatedAt:'already approved',note:'keep'};h.reviews['name:videotoimu']={status:'unreviewed',itemKey:'KEEP0003',pdfKey:'KEEP0004'};h.refresh();
+  const rawBefore=structuredClone(h.raw),reviewsBefore=structuredClone(h.reviews),targetBefore=structuredClone(h.decisions['name:coma']),view=h.workspace.view({importId:'fixture'}),target=view.libraryTargets.find(t=>t.paperId==='doi:10.1234/coma'),source=h.row('name:videotoimu');
+  assert.equal(target.approved,true);assert.equal(source.mergeSuggestions.length,0,'a bare unrelated name is not automatically associated');
+  const s={candidateId:source.candidateId,token:source.token,action:'merge',targetPaperId:target.paperId,targetToken:target.token};
+  assert.throws(()=>h.workspace.apply({importId:'fixture',selections:[s]}),e=>e.code==='APPROVAL_REQUIRED');
+  assert.equal(h.workspace.apply({importId:'fixture',approved:true,selections:[s]}).merged,1);
+  const merged=h.resolved.papers.find(p=>p.id===target.paperId);assert.equal(merged.count,2);assert.equal(merged.conversationCount,2);assert.ok(merged.sourceCandidateIds.includes('name:coma'));assert.ok(merged.sourceCandidateIds.includes('name:videotoimu'));
+  assert.deepEqual(h.raw,rawBefore);assert.deepEqual(h.reviews,reviewsBefore);assert.deepEqual(h.decisions['name:coma'],targetBefore);
+  assert.deepEqual(new Set(h.resolved.mentions.filter(m=>m.paperId===target.paperId).map(m=>m.sourcePaperId)),new Set(['name:coma','name:videotoimu']));
+  for(const m of h.resolved.mentions){const original=h.raw.mentions.find(o=>o.paperId===m.sourcePaperId&&o.start===m.start);for(const key of ['quote','excerpt','messageId','conversationId','date','role'])assert.equal(m[key],original[key]);}
+  assert.equal(h.workspace.apply({importId:'fixture',approved:true,selections:[s]}).applied,0);
+});
+
+test('an explicitly re-merged prior approval is retained as history and stale or cyclic merge targets are rejected',()=>{
+  const h=fixture();h.decisions={'name:coma':{action:'match',recordId:'doi:10.1234/coma',updatedAt:'first'},'name:resnet':{action:'match',recordId:'doi:10.1234/resnet',updatedAt:'second',evidence:[{type:'exact-title',detail:'original'}]}};h.refresh();
+  const view=h.workspace.view({importId:'fixture',status:'completed'}),coma=view.libraryTargets.find(t=>t.paperId==='doi:10.1234/coma'),resnet=view.libraryTargets.find(t=>t.paperId==='doi:10.1234/resnet');
+  const choose=(id,target)=>({candidateId:id,token:h.row(id).token,action:'merge',targetPaperId:target.paperId,targetToken:target.token});
+  assert.equal(h.row('name:resnet').mergeOnly,true);assert.deepEqual(h.row('name:resnet').allowedActions,['merge']);
+  const cycle=h.workspace.apply({approved:true,selections:[choose('name:coma',resnet),choose('name:resnet',coma)]});assert.equal(cycle.applied,0);assert.equal(cycle.skipped.length,2);
+  const stale=choose('name:resnet',coma);h.store.records[coma.recordId].authors=['Updated Author'];h.refresh();assert.equal(h.workspace.apply({approved:true,selections:[stale]}).applied,0);
+  const updated=h.workspace.view({status:'all'}).libraryTargets.find(t=>t.paperId===coma.paperId),old=structuredClone(h.decisions['name:resnet']);
+  assert.equal(h.workspace.apply({approved:true,selections:[choose('name:resnet',updated)]}).merged,1);
+  assert.deepEqual(h.decisions['name:resnet'].history,[old]);assert.equal(h.decisions['name:coma'].updatedAt,'first');assert.equal(h.resolved.papers.find(p=>p.id===coma.paperId).count,2);
+});
+
+test('merging a previously grouped paper carries every source, old paper link, manual PDF and cropped thumbnail forward',()=>{
+  const h=fixture(),oldId='doi:10.1234/resnet',targetId='doi:10.1234/coma';h.decisions={'name:coma':{action:'match',recordId:targetId},'name:resnet':{action:'match',recordId:oldId,note:'source one'},'name:nmal':{action:'match',recordId:oldId,note:'source two'}};h.refresh();
+  const oldDecisions=structuredClone(h.decisions),view=h.workspace.view({status:'all'}),target=view.libraryTargets.find(t=>t.paperId===targetId),row=h.row('name:nmal');assert.equal(row.mergeSource.count,2);
+  const result=h.workspace.apply({approved:true,selections:[{candidateId:row.candidateId,token:row.token,action:'merge',targetPaperId:targetId,targetToken:target.token}]});assert.equal(result.merged,1);assert.equal(result.applied,2);
+  const merged=h.resolved.papers.find(p=>p.id===targetId);assert.equal(merged.count,3);assert.ok(merged.memberIds.includes(oldId));assert.equal(h.resolved.redirects[oldId],targetId);
+  for(const id of ['name:resnet','name:nmal'])assert.deepEqual(h.decisions[id].history,[oldDecisions[id]]);assert.deepEqual(h.decisions['name:coma'],oldDecisions['name:coma']);
+  const hash='a'.repeat(64),figure={id:'old-manual-crop',kind:'custom'},media={state:{figureChoices:{[oldId]:{pdfHash:hash,figureId:figure.id,mode:'manual'}}},figures:()=>[figure]};
+  assert.equal(FigureManager.prototype.selectedFigure.call(media,merged,hash).figure.id,figure.id);
+  const records=prepareLibrary([{id:'pdf:source',title:'Previously selected manual PDF',source:'zotero',exists:true,path:'fixture.pdf',hash}]);
+  const match=matchLibrary(merged,records,{[oldId]:{pdfId:'pdf:source',mode:'manual'}});assert.equal(match.status,'matched');assert.equal(match.selected.id,'pdf:source');
 });

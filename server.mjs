@@ -252,6 +252,7 @@ const server=http.createServer(async(req,res)=>{
         exported=format==='bundle'?reviewBundleExport(rawIndex,index,bibDecisions,{batchSize:url.searchParams.get('batchSize')},groups):compactReviewExport(rawIndex,index,bibDecisions,Object.fromEntries(url.searchParams),groups);
         // Remember what this snapshot showed, so results that arrive later are compared per candidate.
         reviewImports.recordExport(groups,exported.generatedAt);
+        if(exported.duplicateReview)reviewImports.recordDuplicateExport(exported.duplicateReview);
         filename=format==='bundle'?'llm-review-'+exported.snapshot.slice(0,8):'llm-review';
       }else {
         const queued=new Set(index.resolutionQueue.map(q=>q.id)),groups=reviewGroups(rawIndex,index,bibDecisions),wanted=new Set(groups.withoutCandidates.map(p=>p.candidateId));

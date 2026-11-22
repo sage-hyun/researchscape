@@ -12,6 +12,8 @@ test('one bundle holds every unresolved candidate once, most mentioned first, wi
   const before=JSON.stringify([raw,store,decisions]),bundle=reviewBundleExport(raw,resolved,decisions),groups=reviewGroups(raw,resolved,decisions);
   assert.equal(bundle.schemaVersion,2);assert.equal(bundle.kind,'llm-review-bundle');assert.match(bundle.snapshot,/^[a-f0-9]{64}$/);assert.ok(!Number.isNaN(Date.parse(bundle.generatedAt)));
   assert.equal(bundle.total,1219,'1,220 candidates minus the one a person kept separate');assert.equal(bundle.items.length,bundle.total);
+  assert.equal(bundle.instructions.evidenceGuide.length,10);assert.match(bundle.instructions.rules.join(' '),/저장소·첨부파일·데이터셋/);
+  const example=bundle.instructions.proposalExample;assert.equal(example.recordId,null);assert.equal(example.proposal.arxiv,'1701.06538');assert.ok(example.proposal.title);assert.equal(normalizeDecision(example).error,undefined);
   assert.deepEqual(bundle.totals,{withCandidates:599,withoutCandidates:620});
   assert.equal(new Set(bundle.items.map(i=>i.candidateId)).size,bundle.total,'candidateId is unique across both groups');
   assert.ok(!bundle.items.some(i=>i.candidateId===candidateId(linkedName(0))));
@@ -32,7 +34,7 @@ test('one bundle holds every unresolved candidate once, most mentioned first, wi
   assert.equal(reviewBundleExport(raw,resolved,decisions,{batchSize:50}).batches.length,Math.ceil(bundle.total/50));assert.equal(reviewBundleExport(raw,resolved,decisions,{batchSize:'100'}).batches[0].count,100);
   for(const batchSize of [49,101,0,60.5,'many'])assert.throws(()=>reviewBundleExport(raw,resolved,decisions,{batchSize}),/50~100/);
   // The result an LLM writes starts from the embedded template and schema.
-  assert.deepEqual(bundle.resultTemplate,{schemaVersion:2,snapshot:bundle.snapshot,batchIds:[],decisions:[]});assert.ok(bundle.instructions.decisions.propose.includes('proposal'));
+  assert.deepEqual(bundle.resultTemplate,{schemaVersion:2,snapshot:bundle.snapshot,batchIds:[],decisions:[],duplicateSnapshot:bundle.duplicateReview.snapshot,duplicateSuggestions:[]});assert.ok(bundle.instructions.decisions.propose.includes('proposal'));
   // Same privacy projection as the per-page export: no conversation text, IDs, lookup URLs or scores.
   const text=JSON.stringify(bundle);for(const forbidden of ['PRIVATE_CHAT_BODY','sourceUrl','fetchedAt','conversationId','messageId','"links"','"sources"','"score"','c-vela','m-vela','Fixture Vela'])assert.ok(!text.includes(forbidden),forbidden);
   assert.equal(JSON.stringify([raw,store,decisions]),before,'exporting never changes state');
